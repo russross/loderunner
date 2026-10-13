@@ -3,6 +3,7 @@
 pub mod devices;
 pub mod graphics;
 pub mod player;
+pub mod rounds;
 pub mod score;
 pub mod sound;
 pub mod state;

@@ -64,6 +64,7 @@ pub struct Game {
     pub score: Score,
     pub falling_sound: bool,
     pub falling_pitch: u8,
+    pub hole_generations: [u32; 448],
     pub hires: Hires,
     pub keyboard: Keyboard,
     pub speaker: Speaker,
@@ -107,6 +108,7 @@ impl Game {
             score: Score::default(),
             falling_sound: false,
             falling_pitch: 0x20,
+            hole_generations: [0; 448],
             hires: Hires::default(),
             keyboard: Keyboard::default(),
             speaker: Speaker::default(),
@@ -174,7 +176,6 @@ impl Game {
         if game.player.col == 0xff {
             return Err("level contains no player".into());
         }
-        game.hidden_ladders.sort();
         let (sprite, x, y) = game.player_sprite_coordinates();
         // The tile player was already drawn at its initial position. Drawing the
         // same bits here changes nothing; overlap is deliberately ignored on load.
@@ -262,12 +263,14 @@ impl Game {
             }
         }
         holes.sort_by_key(|hole| hole.cell);
+        let mut hidden_ladders = self.hidden_ladders.clone();
+        hidden_ladders.sort();
         Snapshot {
             session: self.session.clone(),
             actors,
             active: self.active.to_vec(),
             background: self.background.to_vec(),
-            hidden_ladders: self.hidden_ladders.clone(),
+            hidden_ladders,
             holes,
         }
     }

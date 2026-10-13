@@ -51,13 +51,24 @@ impl Game {
         }
 
         if self.falling_sound {
+            let here =
+                self.background[usize::from(self.player.row) * 28 + usize::from(self.player.col)];
+            let low_counter = if here != Tile::Ladder
+                && !(here == Tile::Rope && self.player.y_adjust == 2)
+                && self.player.row == 15
+                && self.player.y_adjust >= 2
+            {
+                self.player.row
+            } else {
+                self.player.col
+            };
             play_note(
                 &mut self.clock,
                 &mut self.speaker,
                 self.sound.enabled,
                 0x64,
                 8,
-                self.player.col,
+                low_counter,
             );
             journal.push((Subject::Actor(ActorId::Player), Occurrence::Landed));
         }
@@ -540,7 +551,9 @@ impl Game {
                 self.holes.cols[slot] = col;
                 self.holes.rows[slot] = row;
                 self.holes.timers[slot] = 180;
-                self.holes.generations[slot] += 1;
+                let index = usize::from(row) * 28 + usize::from(col);
+                self.hole_generations[index] += 1;
+                self.holes.generations[slot] = self.hole_generations[index];
                 break;
             }
         }

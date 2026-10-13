@@ -31,3 +31,10 @@ Coverage limits
 ---------------
 
 These helpers have local timing accounting. Sprite rendering and level initialization currently have no charged timing. Their timing analysis must be completed before declaring gameplay round-trip timing established. RGB decoding, host texture updates, and real storage parsing are host work, not original instruction costs.
+
+PLAY_SOUND at $8811
+-------------------
+
+A buffered note reaches PLAY_NOTE after 19 cycles including the calling JSR. After the note, LDY/DEC/LDA/SEC/SBC take 17 cycles. Equal duration adds a taken BEQ, SEC, RTS: 28 total post-note cycles. Longer duration adds untaken BEQ and taken BCC: 30 total. Shorter duration adds two untaken branches, TAX, JSR, SEC, RTS: 37 plus SOUND_DELAY1 cost. These indexed buffers cannot cross pages for supported note indices 1 through 127.
+
+With no buffered note and falling disabled, the routine consumes 29 cycles plus SOUND_DELAY. Falling enabled consumes 34 cycles before PLAY_NOTE and eight after it. The initial LDY NOTE_INDEX leaves its low counter at zero on this path. All PLAY_SOUND formulas exclude the caller's JSR.

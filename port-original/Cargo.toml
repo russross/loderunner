@@ -1,0 +1,10 @@
+[package]
+name = "lode-original"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lode-trace = { path = "../trace" }
+sdl2.workspace = true
+

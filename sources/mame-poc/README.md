@@ -11,7 +11,7 @@ Requires MAME, an audited enhanced Apple IIe ROM set (`apple2ee`), Python 3.11+,
 
     make -C sources/mame-poc probe ROMPATH=/path/to/roms
 
-Omit ROMPATH to use MAME's configured search paths. Both commands skip normal ROM/disk boot and load test code at a stopped reset boundary. The synthetic mode describes a short test program, not substitute firmware. No external ROMs are downloaded or committed.
+Omit ROMPATH to use MAME's configured search paths. Synthetic and direct-reference modes load test code at a stopped reset boundary. Disk mode boots the playable disk from `sources/Lode Runner (4am crack).zip` through ROM and floppy emulation. The synthetic mode describes a short test program, not substitute firmware. No external ROMs are downloaded or committed.
 
 What the checks establish
 -------------------------
@@ -21,6 +21,7 @@ What the checks establish
 *   Mapped RAM snapshots, C000 keyboard substitution, C010 read/write acknowledgement, and C030 speaker observations.
 *   An eight-iteration synthetic loop with independently calculated 23-cycle intervals, repeated key delivery, and persistent acknowledged codes.
 *   Twenty rounds of unchanged original gameplay code at $60E4, before MOVE_PLAYER, including movement, stopping, digging, guard updates, and sound. Each mode runs twice and must reproduce identical snapshots and timing.
+*   Two fresh 4am disk boots, matching all 150 reference level sectors and checked loaded gameplay/graphics ranges. Disk and direct-reference probes agree on all twenty interval durations, player positions/animation, and logical maps.
 
 Each header records and verifies `apple2ee` and `w65c02`, preventing results from silently mixing machine models. Enhanced IIe uses a CMOS CPU rather than the original Apple II's NMOS 6502. This short gameplay schedule has the same cycle totals as the initial II+ probe; other instruction paths, including decimal arithmetic, can differ by CPU model. Later timing validation must account for that choice.
 
@@ -29,7 +30,9 @@ Original-code setup
 
 The probe loads the reference's relocated image ranges, supplies level 1 at $9F00, and enters INIT_GAME_DATA at $6056. GAME_MODE zero selects the existing in-memory level loader; the first main-loop boundary changes it to two for keyboard gameplay. The original decoder, rendering routines, iris, and scheduler setup execute. The input schedule supplies CC at round zero, A0 at ten, and D5 at twelve. This isolates gameplay from disk/boot requirements without changing gameplay instructions.
 
-The successful 0.276 run measured 1,044,485 cycles across twenty gameplay rounds, with intervals ranging from 40,157 to 66,737 cycles and 200 speaker reads. Loading/iris time is excluded. The snapshots include zero page, active/background maps, guard arrays, and hole arrays. They are raw hook-test records, not the shared gameplay trace schema. No Rust-port comparison, transition instrumentation, or timing tolerance is implemented.
+The successful 0.276 runs measured 1,044,485 cycles across twenty gameplay rounds, with intervals ranging from 40,157 to 66,737 cycles and 200 speaker reads, through both initialization methods. Loading/iris time is excluded. The snapshots include zero page, active/background maps, guard arrays, and hole arrays. They are raw hook-test records, not the shared gameplay trace schema. No Rust-port comparison, transition instrumentation, or timing tolerance is implemented.
+
+Disk mode observes application entry at $6000, supplies Space at the splash poll $61A9 and keyboard-mode code $8B at the ready cursor $8700, then samples $60E4. It never loads gameplay RAM or replaces PC/registers. Each run mounts its own hash-checked disk copy; its contents must remain unchanged. The loaded image is checked before startup modifies it.
 
 Release-specific details
 ------------------------
@@ -45,7 +48,7 @@ The periodic callback runs only after an execution breakpoint has stopped the CP
 Artifacts and cleanup
 ---------------------
 
-Each launch preserves `config.json`, `boundaries.jsonl`, and `mame.log` in a separate directory under `artifacts/mame-poc/apple2ee/`. Errors name the relevant log, and a 30-second host timeout bounds startup or debugger stalls. The emulator also has a twenty-second virtual-time limit if expected boundaries never arrive. Generated records are excluded from Git.
+Each launch preserves `config.json`, `boundaries.jsonl`, and `mame.log` in a separate directory under `artifacts/mame-poc/apple2ee/`. Disk launches also preserve a private `disk.dsk` and entry-time `loaded.bin`. Errors name the relevant log, and a 30-second host timeout bounds startup or debugger stalls. The emulator also has a twenty-second virtual-time limit if expected boundaries never arrive. Generated records are excluded from Git.
 
 `mostlyclean` removes Python bytecode; `clean` also removes the uv environment and generated level input. Neither removes installed ROMs, probe records, MAME configuration, or process logs.
 
@@ -53,7 +56,7 @@ Each launch preserves `config.json`, `boundaries.jsonl`, and `mame.log` in a sep
 Disk source status
 ------------------
 
-The reference project reconstructs the Apple II Reset Vector crack. Normal boot from a preferred Apple II 4am disk remains pending an appropriate image. The downloaded `sources/Lode Runner v1.0 (4am crack).zip` contains the Macintosh version: its Disk Copy 4.2 image has 409,600 data bytes, 9,600 tag bytes, and a Macintosh File System signature. The accompanying screenshot explicitly credits the Macintosh version. Those archives remain unchanged and are not used for Apple II validation.
+The reference project reconstructs the Apple II Reset Vector crack. The preferred external boot baseline is now the supplied Apple II 4am disk. Its twenty-round probe matches the reference's interval timing and logical maps; initial high scores, loader residue, and some initial facing bytes differ. See [4am compatibility analysis](../analysis/4AM_COMPATIBILITY.md) for hashes, exact checked ranges, startup differences, and the limits of this proof. The port's vendored assets remain unchanged.
 
 API references
 --------------

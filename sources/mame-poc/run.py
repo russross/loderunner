@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,17 +14,22 @@ import shutil
 import subprocess
 import sys
 from typing import TypeAlias
+import zipfile
 
 Json: TypeAlias = None | bool | int | str | list["Json"] | dict[str, "Json"]
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE = ROOT / "sources" / "lode_runner_reveng"
 MACHINE = "apple2ee"
 CPU = "w65c02"
+DISK_ARCHIVE = ROOT / "sources" / "Lode Runner (4am crack).zip"
+DISK_MEMBER = "Lode Runner (4am crack)/Lode Runner (4am crack).dsk"
+DISK_SHA256 = "71412e9b4619291a38abc3ad60e032fcc8fba12775798f8d84aeacd108aacdf6"
 
 
 class Mode(Enum):
     SYNTHETIC = "synthetic"
     GAME = "game"
+    DISK = "disk"
 
 
 @dataclass(frozen=True)
@@ -74,6 +80,8 @@ def parse_boundaries(path: Path, mode: Mode, rounds: int) -> tuple[str, list[Bou
     if (not isinstance(version, str) or records[0].get("mode") != mode.value
             or records[0].get("machine") != MACHINE or records[0].get("cpu") != CPU):
         raise ValueError("MAME probe identity mismatch")
+    if mode == Mode.DISK and records[0].get("disk_sha256") != DISK_SHA256:
+        raise ValueError("MAME disk identity mismatch")
     if records[-1].get("kind") != "complete":
         raise ValueError(f"MAME probe did not finish: {records[-1]}")
     if integer(records[-1], "rounds") != rounds or integer(records[-1], "tap_count") != 4:
@@ -106,17 +114,49 @@ def parse_boundaries(path: Path, mode: Mode, rounds: int) -> tuple[str, list[Bou
     return version, boundaries
 
 
-def first_level() -> bytes:
+def level_sector(number: int) -> bytes:
     data = bytearray()
     selected = False
-    for line in (REFERENCE / "disk" / "track_03.asm").read_text().splitlines():
-        if line.startswith("; Track $03, sector $"):
-            selected = int(line.rsplit("$", 1)[1], 16) == 0
+    track, sector = 3 + (number - 1) // 16, (number - 1) % 16
+    for line in (REFERENCE / "disk" / f"track_{track:02x}.asm").read_text().splitlines():
+        if line.startswith(f"; Track ${track:02X}, sector $"):
+            selected = int(line.rsplit("$", 1)[1], 16) == sector
         elif selected and line.strip().startswith("HEX"):
             data.extend(bytes.fromhex(line.strip()[3:]))
     if len(data) != 256:
-        raise ValueError("reference level sector is not 256 bytes")
+        raise ValueError(f"reference level {number} sector is not 256 bytes")
     return bytes(data)
+
+
+# The supplied archive's playable disk is distinct from its diagnostic work
+# disk. Hash pinning prevents a replacement download from silently changing it.
+def disk_image() -> bytes:
+    with zipfile.ZipFile(DISK_ARCHIVE) as archive:
+        image = archive.read(DISK_MEMBER)
+    if len(image) != 143360 or hashlib.sha256(image).hexdigest() != DISK_SHA256:
+        raise ValueError("4am disk identity differs from the inspected archive")
+    for number in range(1, 151):
+        track, sector = 3 + (number - 1) // 16, (number - 1) % 16
+        offset = (track * 16 + sector) * 256
+        if image[offset:offset + 256] != level_sector(number):
+            raise ValueError(f"4am/reference level {number} differs")
+    return image
+
+
+def verify_loaded_image(path: Path) -> None:
+    loaded = path.read_bytes()
+    reference = (REFERENCE / "main.bin").read_bytes()
+    if len(loaded) != len(reference):
+        raise ValueError("unexpected disk-loaded image size")
+    # RESET_GAME replaces its splash data pointer before reading it. Only the
+    # initial operand differs; gameplay code, lookup tables, and sprites match.
+    expected = bytearray(reference[0x6000:0x9000])
+    expected[0x31:0x33] = bytes.fromhex("2860")
+    if loaded[0x6000:0x9000] != expected:
+        raise ValueError("4am/reference gameplay code differs beyond the splash operand")
+    for first, last in [(0x1a85, 0x1db2), (0x9f00, 0xb700)]:
+        if loaded[first:last] != reference[first:last]:
+            raise ValueError(f"4am/reference graphics or data differ in {first:04x}-{last - 1:04x}")
 
 
 def deliveries(mode: Mode) -> list[dict[str, int]]:
@@ -136,6 +176,12 @@ def launch(mame: str, work: Path, rompath: str | None, mode: Mode, run: int) -> 
         "image": str(REFERENCE / "main.bin"), "level": str(work / "level-1.bin"),
         "inputs": deliveries(mode),
     }
+    if mode == Mode.DISK:
+        image = disk_image()
+        disk_path = directory / "disk.dsk"
+        disk_path.write_bytes(image)
+        config["loaded_image"] = str(directory / "loaded.bin")
+        config["disk_sha256"] = DISK_SHA256
     config_path = directory / "config.json"
     config_path.write_text(json.dumps(config))
     path.unlink(missing_ok=True)
@@ -146,6 +192,8 @@ def launch(mame: str, work: Path, rompath: str | None, mode: Mode, run: int) -> 
             "-diff_directory", str(directory / "diff"), "-state_directory", str(directory / "states")]
     if rompath is not None:
         args.extend(["-rompath", rompath])
+    if mode == Mode.DISK:
+        args.extend(["-flop1", str(directory / "disk.dsk")])
     environment = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy",
                        LODE_POC_CONFIG=str(config_path))
     log_path = directory / "mame.log"
@@ -156,6 +204,10 @@ def launch(mame: str, work: Path, rompath: str | None, mode: Mode, run: int) -> 
     if (result.returncode or "[LUA ERROR]" in log_text or "WRONG CHECKSUMS" in log_text
             or "WARNING:" in log_text or not path.exists()):
         raise ValueError(f"MAME failed ({result.returncode}); inspect {log_path}")
+    if mode == Mode.DISK:
+        verify_loaded_image(directory / "loaded.bin")
+        if hashlib.sha256((directory / "disk.dsk").read_bytes()).hexdigest() != DISK_SHA256:
+            raise ValueError("MAME changed the probe's disk contents")
     return parse_boundaries(path, mode, rounds)
 
 
@@ -178,7 +230,7 @@ def verify(mode: Mode, boundaries: list[Boundary]) -> None:
                 raise ValueError(f"synthetic: instruction effects/timing differ at {index}")
             if boundary.speaker_edges != 1:
                 raise ValueError(f"synthetic: speaker read missing at {index}")
-    if mode == Mode.GAME:
+    if mode in (Mode.GAME, Mode.DISK):
         start, moved, stopped = boundaries[0], boundaries[10], boundaries[-1]
         if start.ram[:4] != bytes([14, 14, 2, 2]) or start.ram[0x8d] != 3 or start.ram[0x93] != 6:
             raise ValueError("original game initialization differs from level 1")
@@ -190,6 +242,17 @@ def verify(mode: Mode, boundaries: list[Boundary]) -> None:
             raise ValueError("original guards/sound did not execute")
 
 
+def verify_boot_agreement(reference: list[Boundary], booted: list[Boundary]) -> None:
+    # The probes enter gameplay through different initialization paths. Compare
+    # the observed playfield, player position/animation, and round costs.
+    if len(reference) != len(booted):
+        raise ValueError("disk/reference boundary counts differ")
+    for original, disk in zip(reference, booted):
+        if (original.delta != disk.delta or original.active != disk.active
+                or original.background != disk.background or original.ram[:5] != disk.ram[:5]):
+            raise ValueError(f"disk/reference gameplay probe differs at {disk.index}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mame", default=shutil.which("mame") or "/usr/games/mame")
@@ -199,7 +262,8 @@ def main() -> int:
     try:
         work = options.work.resolve()
         work.mkdir(parents=True, exist_ok=True)
-        (work / "level-1.bin").write_bytes(first_level())
+        (work / "level-1.bin").write_bytes(level_sector(1))
+        reference_probe: list[Boundary] | None = None
         for mode in Mode:
             first = launch(options.mame, work, options.rompath, mode, 1)
             second = launch(options.mame, work, options.rompath, mode, 2)
@@ -207,10 +271,16 @@ def main() -> int:
                 raise ValueError(f"{mode.value}: repeated runs differ")
             version, boundaries = first
             verify(mode, boundaries)
+            if mode == Mode.GAME:
+                reference_probe = boundaries
+            elif mode == Mode.DISK:
+                if reference_probe is None:
+                    raise ValueError("reference probe was not captured")
+                verify_boot_agreement(reference_probe, boundaries)
             elapsed = boundaries[-1].cycles - boundaries[0].cycles
             print(f"MAME {version} {MACHINE}/{CPU}: {mode.value}, {len(boundaries) - 1} intervals, {elapsed} cycles, identical repeated snapshots")
         return 0
-    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile, subprocess.TimeoutExpired) as error:
         print(f"mame-poc: {error}", file=sys.stderr)
         return 1
 

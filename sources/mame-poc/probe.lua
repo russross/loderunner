@@ -15,6 +15,8 @@ local index, previous = 0, nil
 local latch, acknowledgements, speaker_edges = 0, 0, 0
 local observed = {}
 local boundary = config.mode == "synthetic" and 0x1000 or 0x60e4
+local boot_phase = "entry"
+local boot_breakpoint = nil
 
 local function emit(record)
     output:write(json.encode(record), "\n")
@@ -41,6 +43,14 @@ local function load_bytes(first, bytes)
     for offset = 1, #bytes do
         space:write_u8(first + offset - 1, bytes:byte(offset))
     end
+end
+
+local function save_loaded_image()
+    local bytes = {}
+    for address = 0, 0xbfff do bytes[#bytes + 1] = string.char(space:read_u8(address)) end
+    local file = assert(io.open(config.loaded_image, "wb"))
+    file:write(table.concat(bytes))
+    file:close()
 end
 
 -- Loading follows the reference's relocated image ranges. Its in-memory level
@@ -117,12 +127,57 @@ end
 -- The initial breakpoint waits for reset to finish before changing CPU state.
 -- Supplying all bpset arguments avoids a null-string crash in MAME 0.276.
 local reset_vector = space:read_u16(0xfffc)
-local reset_breakpoint = cpu.debug:bpset(reset_vector, "1", "")
+local reset_breakpoint = nil
+if config.mode == "disk" then
+    -- Observe the loaded application's entry without changing PC, registers,
+    -- code, disk reads, or the game's own initialization workflow.
+    boot_breakpoint = cpu.debug:bpset(0x6000,
+        "pb@60e4 == 20 && pb@60e5 == bd && pb@60e6 == 64", "")
+else
+    reset_breakpoint = cpu.debug:bpset(reset_vector, "1", "")
+end
 emit({kind = "header", mode = config.mode, version = emu.app_version(),
     machine = emu.romname(), cpu = cpu.shortname,
-    boundary = boundary, reset_vector = reset_vector})
+    boundary = boundary, reset_vector = reset_vector, disk_sha256 = config.disk_sha256})
+
+-- Starting at the splash and ready cursor uses only keyboard-device delivery.
+-- Setup observations are discarded when the first gameplay boundary is reached.
+local function boot_stopped()
+    local pc = cpu.state["PC"].value
+    if boot_phase == "entry" then
+        assert(pc == 0x6000, "unexpected disk entry stop")
+        save_loaded_image()
+        install_input()
+        cpu.debug:bpclear(boot_breakpoint)
+        boot_breakpoint = cpu.debug:bpset(0x61a9, "1", "")
+        boot_phase = "start"
+    elseif boot_phase == "start" then
+        assert(pc == 0x61a9, "unexpected splash input stop")
+        latch = 0xa0
+        cpu.debug:bpclear(boot_breakpoint)
+        boot_breakpoint = cpu.debug:bpset(0x8700, "1", "")
+        boot_phase = "ready"
+    elseif boot_phase == "ready" then
+        assert(pc == 0x8700, "unexpected ready cursor stop")
+        latch = 0x8b
+        cpu.debug:bpclear(boot_breakpoint)
+        cpu.debug:bpset(boundary, "1", "")
+        boot_phase = "game"
+    else
+        assert(pc == boundary, "unexpected first gameplay stop")
+        observed, acknowledgements, speaker_edges = {}, 0, 0
+        started = true
+        return
+    end
+    cpu.debug:go()
+end
+
 local function stopped()
     if finished or debugger.execution_state ~= "stop" then return end
+    if config.mode == "disk" and not started then
+        boot_stopped()
+        if not started then return end
+    end
     if not started then
         assert(cpu.state["PC"].value == reset_vector, "unexpected startup stop")
         cpu.debug:bpclear(reset_breakpoint)

@@ -33,6 +33,8 @@ Input rounds are zero-based and codes are original high-bit hexadecimal keyboard
 Workspace
 ---------
 
-`sources/` holds reference assets and analysis, `trace/` defines canonical snapshots and trace validation, and `port-original/` contains the procedural port and devices. The 42 behavioral tests include capture/reexecution on all 150 original boards and SDL dummy-device integration. Emulator selection and instrumentation are deferred.
+`sources/` holds reference assets and analysis, `trace/` defines canonical snapshots and trace validation, and `port-original/` contains the procedural port and devices. The 42 behavioral tests include capture/reexecution on all 150 original boards and SDL dummy-device integration. Full emulator trace instrumentation is deferred.
+
+`make mame-poc` runs the optional [MAME debugger proof of concept](sources/mame-poc/README.md), tested with Debian MAME 0.276. It checks repeated raw snapshots, cycle counts, keyboard injection, and original gameplay boundaries using synthetic ROM stand-ins. It does not compare the Rust port against the original machine.
 
 `make mostlyclean` removes incremental build intermediates; `make clean` removes build outputs. Neither removes trace files or high scores. Reference provenance and licensing remain in `sources/lode_runner_reveng/`.

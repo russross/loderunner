@@ -1,4 +1,4 @@
-.PHONY: all fmt lint test check mostlyclean clean
+.PHONY: all fmt lint test check mame-poc mostlyclean clean
 all:
 	cargo build --workspace
 fmt:
@@ -11,6 +11,8 @@ check:
 	$(MAKE) fmt
 	$(MAKE) lint
 	$(MAKE) test
+mame-poc:
+	$(MAKE) -C sources/mame-poc check
 mostlyclean:
 	rm -rf target/debug/incremental
 clean:

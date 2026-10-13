@@ -4,7 +4,7 @@ Lode Runner port semantics
 Status
 ------
 
-The workspace is being built toward a procedural Rust port and same-implementation trace round trip. Emulator selection, instrumentation, and recording/playback as a separate user feature are outside this milestone. The trace contract, initial device implementations, and sprite helpers exist; gameplay implementation is not yet complete. Trace serialization/model application tests are not the gameplay round-trip milestone.
+The workspace is being built toward a procedural Rust port and same-implementation trace round trip. Emulator selection, instrumentation, and recording/playback as a separate user feature are outside this milestone. The trace contract, initial devices, sprite helpers, level loading, and SDL level preview exist; gameplay implementation is not yet complete. Trace serialization/model application tests are not the gameplay round-trip milestone.
 
 Sources and project boundaries
 ------------------------------
@@ -50,6 +50,17 @@ Sprite shifting reads the original image's seven shift pages and pattern tables.
 The keyboard device supports the original C000/C010 boundary. The speaker stores ordered toggle edges and averages drive over audio samples. Live SDL audio submission is not yet implemented. PLAY_NOTE is consolidated into pitch-countdown runs: its initial countdown uses duration, subsequent countdowns use pitch, and its incoming low counter determines the first duration segment. Muting retains the countdown duration but saves three cycles at each skipped speaker access, as in the original branches.
 
 Sound buffers retain one-based append and last-in-first-out selection. The port rejects overflow cleanly rather than corrupting adjacent memory. This is an intentional difference for out-of-domain sound sequences and is not exercised by normal original gameplay.
+
+Level loading and preview
+-------------------------
+
+The storage implementation reads one original 256-byte sector from the vendored track data using level indices 1 through 150. The decoder visits rows top to bottom and columns left to right, taking each low nibble before its high nibble. Values 10 through 15 become empty. Only the first 224 bytes supply tiles.
+
+Gameplay initialization visits rows bottom to top and columns right to left. The first encountered player survives and later player markers disappear. Guards are numbered 1 through 5 in that same traversal; extra guards disappear. Up to 45 hidden ladders are remembered and removed from both logical maps. Gold remains in both logical maps until collected. Accepted actor markers remain only in the active map. Both packed graphics pages are initialized through the original sprite helpers; the iris transition and status display are not yet implemented.
+
+The current player initially faces right; original guard-facing byte zero also means right for state decoding, although guard animation zero initially selects the left-facing sprite. Actor motion classification after movement is not yet implemented. Score currently initializes an observer decimal value to zero; original BCD score mutation has not yet been ported.
+
+`make` builds the preview executable. `cargo run -p lode-original -- preview 1` opens a static level through the SDL device. It does not accept gameplay input. All 150 levels are covered by decoding, initialization, and observer snapshot validation tests. Additional tests cover reverse actor selection, malformed nibbles, absent player, and invalid level numbers.
 
 Local timing formulas
 ---------------------

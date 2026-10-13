@@ -3,6 +3,8 @@
 pub mod devices;
 pub mod graphics;
 pub mod sound;
+pub mod state;
+pub mod storage;
 pub mod timing;
 
 pub static IMAGE: &[u8] = include_bytes!("../../sources/lode_runner_reveng/main.bin");

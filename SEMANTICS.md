@@ -78,6 +78,17 @@ Movement uses original adjustments 0 through 4 centered at 2. Crossing an adjust
 
 Digging left uses animation indices 0 through 12; right uses 12 through 24. Each attempt requires a brick below the adjacent empty cell. Twelve calls update debris and brick graphics; a thirteenth call completes the opening. Interrupted digging restores the brick image and erases previous debris. Completion does not move the player, despite the original DROP_PLAYER_IN_HOLE label. It removes only the active logical brick, clears that brick on both graphics pages, and allocates the first unused timer slot among 0 through 29 with value 180. Observer generation counters belong to cells and are copied into allocated slots; reusing a slot for another location does not alter that location's generation.
 
+Guard gameplay
+--------------
+
+Guards retain eight-element parallel arrays and one-based active slots. A working Guard record is loaded, modified, and stored for each scheduled operation. The scheduler advances a three-phase pattern table selected by guard count plus difficulty, peels pattern bits least-significant first, and moves the next guard in round-robin order for each set bit. A dead player aborts further guard movement immediately.
+
+Guard gravity distinguishes active empty/player cells, supporting guard occupants, and background terrain. Negative gold timers indicate carrying gold; positive timers encode trap waiting, shake offsets, climbing out, or pending resurrection. Guard gold pickup is centered, removes only background gold, and seeds its carry counter with 0xff minus resurrection column. Drop advances that counter only at original movement boundaries and retries with 0xff if the background cell is occupied. Entering a hole drops carried gold above when possible, otherwise removes it from the total. Centering inside background brick starts the trap timer and awards 75.
+
+Route choice first checks trapped escape, then a supported path on the player's row. Otherwise it evaluates down, up, left columns from the farthest limit inward, then right columns from farthest inward. Only a strictly smaller pseudo-distance replaces the selected action. Horizontal distance is relative to the guard, not the player. Candidate search below retains the original left-check/right-check row-pointer asymmetry. Bottom-row candidate search terminates at row 15; the original out-of-map pointer-table alias read there is not reproduced. Normal boards with a supporting bottom floor stop above that read.
+
+Hole closure finds the matching guard slot, removes its carried gold, assigns an empty resurrection location starting at row 1 and the current resurrection column, centers adjustments, and starts a 20-round resurrection timer. Resurrection stages occur at 19 and 10; expiration retries once per round until active occupancy is empty. Guard sprite restoration and the four-note resurrection tune occur together. A board without an empty resurrection location reports an error instead of scanning outside the playfield.
+
 Guard-free round probe
 ----------------------
 

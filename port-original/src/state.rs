@@ -36,6 +36,7 @@ pub struct Guards {
     pub resurrection_timers: [u8; 8],
     pub current: u8,
     pub phase: u8,
+    pub motions: [Option<Motion>; 8],
 }
 
 #[derive(Default)]
@@ -65,6 +66,8 @@ pub struct Game {
     pub falling_sound: bool,
     pub falling_pitch: u8,
     pub hole_generations: [u32; 448],
+    pub resurrection_col: u8,
+    pub difficulty: u8,
     pub hires: Hires,
     pub keyboard: Keyboard,
     pub speaker: Speaker,
@@ -109,6 +112,8 @@ impl Game {
             falling_sound: false,
             falling_pitch: 0x20,
             hole_generations: [0; 448],
+            resurrection_col: 0,
+            difficulty: 0,
             hires: Hires::default(),
             keyboard: Keyboard::default(),
             speaker: Speaker::default(),
@@ -228,7 +233,7 @@ impl Game {
                 } else {
                     Facing::Right
                 },
-                motion: Motion::Standing,
+                motion: self.guards.motions[slot].unwrap_or(Motion::Standing),
                 action: if (1..0x7f).contains(&self.guards.gold_timers[slot]) {
                     Action::Trapped
                 } else {

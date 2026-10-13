@@ -57,9 +57,6 @@ impl Game {
             let col = self.holes.cols[slot];
             let row = self.holes.rows[slot];
             let index = usize::from(row) * 28 + usize::from(col);
-            if self.holes.timers[slot] == 1 && self.active[index] == Tile::Guard {
-                return Err("guard burial and resurrection are not implemented yet".into());
-            }
             self.holes.timers[slot] -= 1;
             match self.holes.timers[slot] {
                 20 | 10 => {
@@ -72,6 +69,14 @@ impl Game {
                     erase_sprite_at_pixels(&mut self.hires, 0, col * 5, row * 11);
                 }
                 0 => {
+                    if self.active[index] == Tile::Guard {
+                        self.active[index] = Tile::Brick;
+                        self.background[index] = Tile::Brick;
+                        draw_sprite(&mut self.hires, 0, 1, col, row);
+                        draw_sprite(&mut self.hires, 1, 1, col, row);
+                        self.bury_guard(col, row, journal)?;
+                        continue;
+                    }
                     if self.active[index] == Tile::Player {
                         self.alive = false;
                         journal.push((

@@ -2,6 +2,7 @@
 
 pub mod devices;
 pub mod graphics;
+pub mod guards;
 pub mod player;
 pub mod rounds;
 pub mod score;

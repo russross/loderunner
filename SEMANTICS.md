@@ -4,7 +4,7 @@ Lode Runner port semantics
 Status
 ------
 
-The workspace is being built toward a procedural Rust port and same-implementation trace round trip. Emulator selection, instrumentation, and recording/playback as a separate user feature are outside this milestone. Gameplay implementation is not yet complete.
+The workspace is being built toward a procedural Rust port and same-implementation trace round trip. Emulator selection, instrumentation, and recording/playback as a separate user feature are outside this milestone. The trace contract, initial device implementations, and sprite helpers exist; gameplay implementation is not yet complete. Trace serialization/model application tests are not the gameplay round-trip milestone.
 
 Sources and project boundaries
 ------------------------------
@@ -39,3 +39,19 @@ Trace round trip
 A trace carries initial observer state, source/configuration identity, interval records, and a terminal boundary. Validation checks identities, event canonicalization, state-change preconditions, monotonically numbered intervals, and final state. Replay restarts execution from the same deterministic configuration and injects only recorded inputs through devices at their interval and observation ordinal. Expected gameplay events never drive execution. A fresh independent trace must match the supplied trace exactly, including timing and final observer state. Later cross-validation may tolerate interval timing drift without tolerating gameplay differences.
 
 Input observations record newly delivered keyboard codes even when identical to a previously delivered code. Absence of a fresh key is not a release. State changes alone cannot recover such deliveries, contacts without persistent effects, or transient lifecycle episodes; these require a small occurrence journal.
+
+Implemented device and rendering behavior
+----------------------------------------
+
+Hires writes invalidate whole visible scanlines only when stored bytes change. Whole-scanline decoding covers adjacent-byte artifact dependencies. Selecting another page invalidates all of its scanlines. Texture updates are incremental; presentation copies the persistent texture because SDL backbuffer contents are not assumed to persist. The current digital color decoder distinguishes white adjacent bits and alternating colored patterns; it does not yet reproduce analog NTSC filtering or half-dot phase transitions accurately.
+
+Sprite shifting reads the original image's seven shift pages and pattern tables. Tile drawing retains masks and two/three-byte writes. Actor drawing returns `(foreground XOR background) AND shifted sprite` overlap bits accumulated before drawing. Erasure uses `(foreground AND (shifted sprite XOR 0x7f)) OR background`. These operations do not inspect RGB pixels.
+
+The keyboard device supports the original C000/C010 boundary. The speaker stores ordered toggle edges and averages drive over audio samples. Live SDL audio submission is not yet implemented. PLAY_NOTE is consolidated into pitch-countdown runs: its initial countdown uses duration, subsequent countdowns use pitch, and its incoming low counter determines the first duration segment. Muting retains the countdown duration but saves three cycles at each skipped speaker access, as in the original branches.
+
+Sound buffers retain one-based append and last-in-first-out selection. The port rejects overflow cleanly rather than corrupting adjacent memory. This is an intentional difference for out-of-domain sound sequences and is not exercised by normal original gameplay.
+
+Local timing formulas
+---------------------
+
+All listed callee costs include RTS and exclude the caller's JSR. SOUND_DELAY1 uses `906*n+5`, interpreting a zero byte as 256 iterations. SOUND_DELAY uses `906*2*(setting+1)+11` for settings 0 through 15. ROW_TO_ADDR uses `23+(row>=123)+(row>=187)` for visible scanlines. The virtual clock currently uses a nominal 1,023,000 Hz NTSC conversion; original machine scanline clock stretching is not represented. Host sleeps target an absolute deadline and never modify virtual time.

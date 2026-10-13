@@ -7,7 +7,10 @@ lint:
 	cargo clippy --workspace --all-targets -- -D warnings
 test:
 	cargo test --workspace
-check: fmt lint test
+check:
+	$(MAKE) fmt
+	$(MAKE) lint
+	$(MAKE) test
 mostlyclean:
 	rm -rf target/debug/incremental
 clean:

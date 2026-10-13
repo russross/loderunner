@@ -6,6 +6,8 @@ pub mod guards;
 pub mod player;
 pub mod rounds;
 pub mod score;
+pub mod screen;
+pub mod session;
 pub mod sound;
 pub mod state;
 pub mod storage;

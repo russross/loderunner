@@ -7,30 +7,40 @@ pub const WIDTH: usize = 280;
 pub const HEIGHT: usize = 192;
 
 pub struct Hires {
-    pages: [[u8; 8192]; 2],
+    pages: Box<[[u8; 8192]; 2]>,
     selected: usize,
     dirty: [[bool; HEIGHT]; 2],
-    address_row: [Option<usize>; 8192],
+    address_row: Box<[u8]>,
+    pending_cycles: u64,
 }
 
 impl Default for Hires {
     fn default() -> Self {
-        let mut address_row = [None; 8192];
+        let mut address_row = vec![0xff; 8192].into_boxed_slice();
         for row in 0..HEIGHT {
             for col in 0..40 {
-                address_row[Self::row_offset(row) + col] = Some(row);
+                address_row[Self::row_offset(row) + col] = row as u8;
             }
         }
         Self {
-            pages: [[0x80; 8192]; 2],
+            pages: Box::new([[0x80; 8192]; 2]),
             selected: 0,
             dirty: [[true; HEIGHT]; 2],
             address_row,
+            pending_cycles: 0,
         }
     }
 }
 
 impl Hires {
+    pub fn account_cycles(&mut self, cycles: u64) {
+        self.pending_cycles += cycles;
+    }
+
+    pub fn take_cycles(&mut self) -> u64 {
+        std::mem::take(&mut self.pending_cycles)
+    }
+
     pub fn row_offset(row: usize) -> usize {
         (row & 7) * 0x400 + ((row >> 3) & 7) * 0x80 + (row >> 6) * 40
     }
@@ -48,8 +58,9 @@ impl Hires {
         let offset = offset % 8192;
         if self.pages[page][offset] != value {
             self.pages[page][offset] = value;
-            if let Some(row) = self.address_row[offset] {
-                self.dirty[page][row] = true;
+            let row = self.address_row[offset];
+            if row != 0xff {
+                self.dirty[page][usize::from(row)] = true;
             }
         }
     }

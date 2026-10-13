@@ -7,6 +7,7 @@ use lode_trace::{FORMAT_VERSION, Header, Observer, Phase, Subject, Tile, Trace};
 
 impl Game {
     pub fn play_sound_section(&mut self) {
+        self.clock.advance(self.hires.take_cycles());
         let index = usize::from(self.sound.index);
         if index != 0 {
             let duration = self.sound.durations[index];
@@ -54,6 +55,7 @@ impl Game {
             if self.holes.timers[slot] == 0 {
                 continue;
             }
+            self.clock.advance(50);
             let col = self.holes.cols[slot];
             let row = self.holes.rows[slot];
             let index = usize::from(row) * 28 + usize::from(col);

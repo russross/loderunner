@@ -1,103 +1,99 @@
 Lode Runner port semantics
 =========================
 
-Status
-------
-
-The workspace is being built toward a procedural Rust port and same-implementation trace round trip. Emulator selection, instrumentation, and recording/playback as a separate user feature are outside this milestone. Devices, sprite helpers, level loading, player movement, digging, gold collection, BCD score, hole refill, exit revealing, sound sections, and guard-free trace reexecution exist. Guard gameplay, control handlers, session transitions, and non-sound instruction timing remain incomplete. The guard-free probe demonstrates actual input-only reexecution and comparison, but is not the full gameplay round-trip milestone.
-
-Sources and project boundaries
-------------------------------
-
-`sources/lode_runner_reveng/` vendors reference revision `113db1c16951717259c9ae5e128958b29de0634d`. Its README identifies the reconstructed cracked Apple II disk image. The original downloaded checkout remains outside the root repository. Source provenance and its CC BY-SA license remain with the vendored files.
-
-The root Cargo workspace contains `trace/` and `port-original/`. Gameplay files remain flat in the port's `src/`; hardware lives in `src/devices/`; tests live in each project's `tests/`. Future ports become sibling packages and share the trace contract. Make drives builds and checks. `mostlyclean` removes incremental intermediates; `clean` removes Cargo build outputs. Neither removes sources, traces, or persistent game data.
-
-Execution and hardware
-----------------------
-
-The port translates original subroutines, loops, and conditions into Rust operations on named state. Short shared exits and jumps into other routines are duplicated to keep functions self-contained. It does not execute 6502 instructions. Ordinary counters retain original byte wrapping where behavior depends on it; closed domains use enums.
-
-Hires devices retain all bytes in both original 8 KiB ranges, including display holes. Rendering and framebuffer collision preserve byte operations and order. Display decoding and incremental dirty updates belong to the device. Keyboard input retains the original last-code latch and availability strobe. Physical release does not stop a persistent keyboard movement command. Speaker access toggles its state on the virtual clock. Storage access is replaced without emulated disk delays.
-
-Timing is calculated from local instruction/block analysis and consolidated into routine/path formulas when practical. Host pacing never determines game state or virtual elapsed time. Approximations must be listed with affected paths and their justification.
-
-Rounds and observation
-----------------------
-
-A gameplay round begins immediately before MOVE_PLAYER at the main loop and contains its original ordered operations: player movement, sound/delay, exit-ladder and completion checks, timers, sound/delay, and scheduled guards. Death and level completion finish the current round before reset or level loading changes actor identity. Round duration is variable. Waiting and transitions use explicit non-gameplay intervals.
-
-The only cycle-based trace record is the interval start, expressed as cycles since the previous interval start. Every event inside the interval is untimed. A final boundary closes the last interval and gives its elapsed duration. Empty rounds are retained for replay input addressing and timing comparison.
-
-The observer consumes committed snapshots and occurrence observations; it does not simulate game rules. Net changes are computed from successive snapshots and applied atomically. Occurrences describe transient observations and are not applied a second time as state mutations. Inputs retain delivery order and a logical observation ordinal. Other occurrence episodes retain order per subject; independent subjects are sorted canonically. Snapshot objects and net changes are canonicalized by identity.
-
-Player and guard snapshots contain cell and subcell location, facing, motion/action, lifecycle, and gold possession. Terrain includes original tile identity and current traversability representation. Holes include location, lifecycle, and a generation distinguishing later openings at the same cell. Gold is represented by location or carrier rather than an invented permanent object identity. Session state includes level/attempt identity, phase, score, lives, and exit availability. Guard scheduler and timer internals remain port state; their visible consequences enter the observer. Collision partners must be observed or established from evidence, never inferred solely from death.
-
-Trace round trip
-----------------
-
-A trace carries initial observer state, source/configuration identity, interval records, and a terminal boundary. Validation checks identities, event canonicalization, state-change preconditions, monotonically numbered intervals, and final state. Replay restarts execution from the same deterministic configuration and injects only recorded inputs through devices at their interval and observation ordinal. Expected gameplay events never drive execution. A fresh independent trace must match the supplied trace exactly, including timing and final observer state. Later cross-validation may tolerate interval timing drift without tolerating gameplay differences.
-
-Input observations record newly delivered keyboard codes even when identical to a previously delivered code. Absence of a fresh key is not a release. State changes alone cannot recover such deliveries, contacts without persistent effects, or transient lifecycle episodes; these require a small occurrence journal.
-
-Implemented device and rendering behavior
-----------------------------------------
-
-Hires writes invalidate whole visible scanlines only when stored bytes change. Whole-scanline decoding covers adjacent-byte artifact dependencies. Selecting another page invalidates all of its scanlines. Texture updates are incremental; presentation copies the persistent texture because SDL backbuffer contents are not assumed to persist. The current digital color decoder distinguishes white adjacent bits and alternating colored patterns; it does not yet reproduce analog NTSC filtering or half-dot phase transitions accurately.
-
-Sprite shifting reads the original image's seven shift pages and pattern tables. Tile drawing retains masks and two/three-byte writes. Actor drawing returns `(foreground XOR background) AND shifted sprite` overlap bits accumulated before drawing. Erasure uses `(foreground AND (shifted sprite XOR 0x7f)) OR background`. These operations do not inspect RGB pixels.
-
-The keyboard device supports the original C000/C010 boundary. The speaker stores ordered toggle edges and averages drive over audio samples. Live SDL audio submission is not yet implemented. PLAY_NOTE is consolidated into pitch-countdown runs: its initial countdown uses duration, subsequent countdowns use pitch, and its incoming low counter determines the first duration segment. Muting retains the countdown duration but saves three cycles at each skipped speaker access, as in the original branches.
-
-Sound buffers retain one-based append and last-in-first-out selection. The port rejects overflow cleanly rather than corrupting adjacent memory. This is an intentional difference for out-of-domain sound sequences and is not exercised by normal original gameplay.
-
-Level loading and preview
--------------------------
-
-The storage implementation reads one original 256-byte sector from the vendored track data using level indices 1 through 150. The decoder visits rows top to bottom and columns left to right, taking each low nibble before its high nibble. Values 10 through 15 become empty. Only the first 224 bytes supply tiles.
-
-Gameplay initialization visits rows bottom to top and columns right to left. The first encountered player survives and later player markers disappear. Guards are numbered 1 through 5 in that same traversal; extra guards disappear. Up to 45 hidden ladders are remembered and removed from both logical maps. Their allocation order remains intact in gameplay; only observer snapshots sort their identities. Gold remains in both logical maps until collected. Accepted actor markers remain only in the active map. Both packed graphics pages are initialized through the original sprite helpers; the iris transition and full status display are not yet implemented.
-
-The current player initially faces right; original guard-facing byte zero also means right for state decoding, although guard animation zero initially selects the left-facing sprite. Player motion is classified from the executed movement path. Guard motion classification after movement is not yet implemented. Score is stored as four packed BCD pairs, least significant first; additions propagate decimal carry and wrap at eight digits. The observer exposes the decimal score. Status score rendering writes the original seven visible digits and omits the highest tens digit.
-
-`make` builds the preview executable. `cargo run -p lode-original -- preview 1` opens a static level through the SDL device. It does not accept gameplay input. All 150 levels are covered by decoding, initialization, and observer snapshot validation tests. Additional tests cover reverse actor selection, malformed nibbles, absent player, and invalid level numbers.
-
-Local timing formulas
+Status and boundaries
 ---------------------
 
-All listed callee costs include RTS and exclude the caller's JSR. SOUND_DELAY1 uses `906*n+5`, interpreting a zero byte as 256 iterations. SOUND_DELAY uses `906*2*(setting+1)+11` for settings 0 through 15. ROW_TO_ADDR uses `23+(row>=123)+(row>=187)` for visible scanlines. The virtual clock currently uses a nominal 1,023,000 Hz NTSC conversion; original machine scanline clock stretching is not represented. Host sleeps target an absolute deadline and never modify virtual time.
+The same-implementation gameplay trace round-trip milestone is complete. The procedural Rust port executes keyboard gameplay with guards, digging, gold, holes, death/restart, level advancement, pause, sound/speed controls, high-score display and initials entry. SDL displays packed hires memory and plays speaker edges. Optional traces are independently reexecuted headlessly using only recorded observed inputs. This establishes internal replay consistency; original-machine equivalence is not yet validated. Emulator selection and instrumentation, compact recordings, and subsequent higher-level ports are outside this milestone.
 
-Player movement and digging
----------------------------
+`sources/lode_runner_reveng/` vendors reference revision `113db1c16951717259c9ae5e128958b29de0634d`, including its provenance and CC BY-SA license. Its README identifies the reconstructed cracked Apple II disk image. The downloaded checkout remains untouched outside the root repository. Root Cargo builds `trace/` and `port-original/`. Gameplay files are flat in the port's `src/`, hardware lives in `src/devices/`, and integration tests live in `tests/`. Future ports become sibling packages sharing the trace contract.
 
-MOVE_PLAYER resets the gold-pickup exception at each call. Continued digging bypasses gravity and input. Otherwise ladder/centered-rope support is checked before gravity; support below depends on both active occupants and background terrain. Falling erases the old sprite, chooses its facing-specific falling animation, nudges the column, increments vertical adjustment, and either collects centered gold or transfers the active marker into the next row. No keyboard observation occurs on this path; a key stays latched.
+Make drives incremental builds. Checks run formatting, Clippy, then tests in order. `mostlyclean` removes incremental intermediates; `clean` removes Cargo build outputs. Neither removes source assets, traces, or high scores.
 
-When gravity stops, the landing note precedes keyboard observation. A fresh keyboard code updates both persistent command bytes; no fresh code retains them. Vertical/dig actions take precedence, with failed actions falling back to the horizontal command. Control-key handlers are not yet implemented and return an explicit error rather than silently producing different behavior. Movement attempts themselves do not charge original instruction costs yet; timing coverage remains incomplete and is not presented as validated gameplay pacing.
+Execution, storage, and initialization
+--------------------------------------
 
-Movement uses original adjustments 0 through 4 centered at 2. Crossing an adjustment boundary transfers the active player marker; the previous active cell receives its background tile except that background brick becomes active empty. Horizontal movement blocks brick, stone, and trap; downward movement blocks brick and stone but admits trap. Nudge routines can collect gold when they reach the centered position. Collection removes background gold, erases its graphics, adds 250, appends the original six-note sequence, and suppresses framebuffer-overlap death for the remainder of that movement call.
+The port translates original subroutines, loops, and conditions into Rust operations on named state. Shared exits and jumps into other routines are duplicated where necessary to keep functions self-contained. It does not execute 6502 instructions. Counters retain byte wrapping where gameplay depends on it; closed domains use enums. Score retains four little-endian packed BCD pairs, propagates decimal carry, and wraps at eight decimal digits. The observer exposes decimal score; the status screen displays the original seven visible digits.
 
-Digging left uses animation indices 0 through 12; right uses 12 through 24. Each attempt requires a brick below the adjacent empty cell. Twelve calls update debris and brick graphics; a thirteenth call completes the opening. Interrupted digging restores the brick image and erases previous debris. Completion does not move the player, despite the original DROP_PLAYER_IN_HOLE label. It removes only the active logical brick, clears that brick on both graphics pages, and allocates the first unused timer slot among 0 through 29 with value 180. Observer generation counters belong to cells and are copied into allocated slots; reusing a slot for another location does not alter that location's generation.
+Storage reads original 256-byte sectors from vendored track data for levels 1 through 150. There are no disk delays or controller emulation. Decoding visits rows top to bottom and columns left to right, consuming each low nibble before its high nibble. Tile values 10 through 15 become empty; only the first 224 bytes describe the 28 by 16 playfield.
 
-Guard gameplay
---------------
+Initialization visits rows bottom to top and columns right to left. The first encountered player survives; other player markers disappear. Guards receive slots 1 through 5 in the same traversal; extras disappear. At most 45 hidden ladders are retained in allocation order and removed from both logical maps. Accepted actor markers occupy the active map only. Gold remains in both maps until collection. Both hires pages are built through original sprite helpers, followed by status text. No player is an initialization error. Initial rendering costs are outside the initial virtual-clock origin.
 
-Guards retain eight-element parallel arrays and one-based active slots. A working Guard record is loaded, modified, and stored for each scheduled operation. The scheduler advances a three-phase pattern table selected by guard count plus difficulty, peels pattern bits least-significant first, and moves the next guard in round-robin order for each set bit. A dead player aborts further guard movement immediately.
+Configuration embeds the full sector list, starting index, whether levels wait for a starting key, and initial high scores. The original configuration contains all 150 boards. Reloading after death or completion retains the virtual clock, speaker history, sound preferences, score, lives, guard scheduler phase, resurrection column, and eligibility for high scores. It increments attempt identity and resets exit availability. A new game resets gameplay progress and eligibility to the configured starting board while retaining sound preferences and high scores.
 
-Guard gravity distinguishes active empty/player cells, supporting guard occupants, and background terrain. Negative gold timers indicate carrying gold; positive timers encode trap waiting, shake offsets, climbing out, or pending resurrection. Guard gold pickup is centered, removes only background gold, and seeds its carry counter with 0xff minus resurrection column. Drop advances that counter only at original movement boundaries and retries with 0xff if the background cell is occupied. Entering a hole drops carried gold above when possible, otherwise removes it from the total. Centering inside background brick starts the trap timer and awards 75.
+Devices and graphics
+--------------------
 
-Route choice first checks trapped escape, then a supported path on the player's row. Otherwise it evaluates down, up, left columns from the farthest limit inward, then right columns from farthest inward. Only a strictly smaller pseudo-distance replaces the selected action. Horizontal distance is relative to the guard, not the player. Candidate search below retains the original left-check/right-check row-pointer asymmetry. Bottom-row candidate search terminates at row 15; the original out-of-map pointer-table alias read there is not reproduced. Normal boards with a supporting bottom floor stop above that read.
+Hires retains all bytes of both original 8 KiB pages, including display holes. Device buffers and the inverse scanline map are heap allocated so nested capture/replay construction does not exhaust small test-thread stacks. Visible byte changes dirty their whole scanline; display-hole writes do not dirty pixels. Page selection dirties all visible rows. Whole-row decoding covers neighboring-byte artifact dependencies. SDL uploads only dirty rows to a persistent texture and copies that texture when presenting; backbuffer retention is not assumed.
 
-Hole closure finds the matching guard slot, removes its carried gold, assigns an empty resurrection location starting at row 1 and the current resurrection column, centers adjustments, and starts a 20-round resurrection timer. Resurrection stages occur at 19 and 10; expiration retries once per round until active occupancy is empty. Guard sprite restoration and the four-note resurrection tune occur together. A board without an empty resurrection location reports an error instead of scanning outside the playfield.
+Sprite shifting uses original image shift pages and pattern tables. Tile draws preserve masking and two/three-byte writes. Actor draws accumulate `(foreground XOR background) AND shifted_sprite` before ORing the sprite into foreground. Erasure uses `(foreground AND (shifted_sprite XOR 0x7f)) OR background`. Collision uses packed framebuffer bytes, never decoded RGB. The digital decoder distinguishes adjacent white bits and alternating artifact colors, but does not implement analog NTSC filtering or fully accurate half-dot phase transitions.
 
-Guard-free round probe
-----------------------
+Keyboard reads use C000 and acknowledge through C010. Clearing availability retains the last code; delivery replaces the latch, including repeated delivery of the same code. Persistent keyboard movement is intentional: physical release does not stop movement; Space supplies a stop command. A code delivered while falling or digging remains unobserved until the game polls it. Trace inputs are fresh acknowledged codes, not host key events or repeated reads of an unchanged latch. Thus a release record is not invented for hardware that does not expose releases.
 
-`capture_guard_free` executes the translated subset on a supplied sector, rejecting boards with guards. It observes fresh keyboard deliveries and executes the original player/sound/completion/timer/sound ordering. Hole timers are scanned 30 down to zero, decrement once per round, draw fill stages at 20 and 10, and close at zero. Closure kills an active player and journals its environment contact, removes active gold from the total, and restores active brick and both graphics images. Guard burial/resurrection is explicitly unsupported. Original resurrection-column advancement is not yet implemented.
+Speaker access toggles drive at a virtual cycle. PLAY_NOTE advances countdown runs between low-counter wraps and pitch reloads, retaining each edge without instruction interpretation. Its first pitch countdown uses duration; subsequent ones use pitch. Incoming low counter affects the first duration segment. Muting retains countdown duration but saves the original three-cycle speaker-access difference. Note buffers append one-based and play last-in-first-out. Overflow reports an error rather than corrupting neighboring memory.
 
-Exit revealing visits remembered ladder slots in reverse allocation order. Empty background permits conversion to ladder, while active occupancy is preserved. Revealed locations are removed from the pending list. A blocked background defers that location; after all pending ladders are processed without a blockage, gold count becomes 0xff. Exit availability means the original completion condition has become eligible, not that every ladder is visible. A player centered on row zero completes when gold count is zero or 0xff.
+Live audio integrates speaker drive over globally indexed sample windows, preserving fractional-cycle boundaries across batches. Pruning retains the last preceding edge so future samples start in the correct state. SDL output applies a DC-removing filter and gain. Audio and dirty graphics are submitted at sound checkpoints and transition-note checkpoints before sleeping. Host rendering, audio conversion, and file parsing do not add emulated cycles.
 
-PLAY_SOUND consumes the last sound-buffer note, retaining note-index low-counter input, then pads short durations according to frame period. No buffered note selects either falling sound or the delay table. Sound-section local prefixes, branches, calls, and return costs are charged; callers' JSR and gameplay computation are not yet charged. The landing note low-counter input preserves the row-15 support branch leaving Y as row, while ordinary ladder/rope/below-support checks leave Y as column.
+Player execution
+----------------
 
-The probe trace header embeds the complete input sector, level identity, and probe version. Capture records each completed round and a final duration/state. Replay validates the trace, verifies the supplied board/configuration, independently decodes initial state, and executes one round per trace round with only accepted key deliveries as input. Expected state changes are never injected. Reexecution compares every round and terminal state/timing exactly. A terminal round ends before life loss, death tune, restart, or next-level initialization. Schedules extending past it are rejected.
+MOVE_PLAYER resets the gold-pickup collision exception. Continued digging bypasses gravity and keyboard polling. Otherwise it checks ladder and centered-rope support, then active and background support below. Falling erases the previous sprite, selects a facing-specific animation, nudges horizontal adjustment, advances vertical adjustment, and collects centered gold or transfers the active marker into the next row. Landing plays its note before keyboard observation. The note's incoming low counter is row 15 on the bottom support branch and column on other support paths.
 
-Probe coverage includes persistent movement/stop, centered gold pickup, thirteen-call digging, full hole lifetime, level completion, and negative timing/configuration cases. Rendering and player/timer control paths are still uncharged, so deterministic timing equality currently establishes replay consistency rather than closeness to the original machine.
+A fresh code replaces both persistent command bytes; otherwise they persist. Vertical and dig commands precede horizontal fallback. Subcell adjustments range from 0 through 4, centered at 2. Crossing a boundary transfers the active player marker; the previous cell receives background terrain except background brick becomes active empty. Horizontal movement blocks brick, stone, and trap. Downward movement blocks brick and stone but permits trap. Nudging can collect gold at the centered position.
+
+Collection removes background gold, erases its graphics, adds 250, appends six original notes, and suppresses framebuffer-overlap death for the remainder of that player call. Otherwise sprite overlap may kill the player. The trace attributes a collision partner only when logical contact establishes that partner; anonymous framebuffer overlap is represented by death without guessing a partner.
+
+Digging requires a brick below the adjacent empty cell. Twelve calls update debris and brick graphics; the thirteenth completes the opening. Interruption restores the brick and erases debris. Completion does not move the player despite the original DROP_PLAYER_IN_HOLE label. It removes the active brick, retains background brick, clears both graphics images, and allocates the first free slot among 0 through 29 with timer 180. Per-cell generations identify later openings independently of reused timer slots.
+
+Control handlers include sacrifice, end game, skip level, extra life, mute, speed adjustment, keyboard mode, pause, and high scores. Skip and extra-life commands disable high-score qualification. Joystick selection codes report an explicit unsupported-device error. The SDL mapping exposes the normal keyboard controls; raw capture codes also exercise original control handlers.
+
+Guards, holes, and exits
+-----------------------
+
+Guards retain eight-element parallel arrays with one-based active slots. A working record is loaded, modified, and stored for each selected update. The scheduler advances a three-phase pattern selected by guard count plus difficulty, consumes bits least-significant first, and advances the round-robin guard index for each set bit. A dead player aborts further guard movement.
+
+Gravity distinguishes empty/player cells, supporting guard occupants, and background terrain. Negative gold timers indicate carrying; positive timers represent trap waiting, shake offsets, and climbing out. Centered pickup removes background gold and seeds carry time with 0xff minus resurrection column. Dropping advances carry time only at movement boundaries and retries with 0xff if the background is occupied. Entering a hole drops carried gold above if possible, otherwise removes it from the remaining total. Centering inside background brick starts the trap timer and awards 75.
+
+Route selection first handles trapped escape, then a supported route on the player's row. Otherwise it considers down, up, left columns from the farthest limit inward, and right columns from the farthest inward. Only strictly better pseudo-distance changes the choice. Horizontal distance is relative to the guard. Candidate searches preserve the original left/right stale-row-pointer asymmetry. Bottom-row search stops at row 15 instead of reproducing an out-of-map zero-page pointer-table alias read; ordinary boards with a supporting bottom floor stop earlier.
+
+Resurrection timers update before hole timers and guard movement. The resurrection column advances modulo 28 once per ordinary round. Hole timers scan slots 30 down to zero, decrement once, draw refill stages at 20 and 10, and close at zero. Closure kills a player in the hole with an environment-contact occurrence, handles gold loss, restores brick in the active map and both graphics pages, and buries the matching guard. Burial searches empty background starting at row 1 and the current resurrection column, centers the guard, and starts resurrection time 20. Stages occur at 19 and 10; expiration retries each round until active occupancy is empty, then restores the guard and appends four notes. No empty resurrection location is an error instead of an out-of-bounds scan.
+
+Exit revealing visits hidden ladders in reverse allocation order. Empty background becomes ladder while active occupancy remains intact. Revealed entries leave the pending list; blocked background defers an entry. Once all are processed without blockage, gold count becomes 0xff. Exit availability indicates completion eligibility, not necessarily visibility of every ladder. A centered player on row zero completes when gold count is zero or 0xff.
+
+Rounds and session transitions
+------------------------------
+
+A gameplay round starts before MOVE_PLAYER. Its ordered operations are player update, sound/delay, exit revealing and completion check, resurrection timers, resurrection-column advancement, hole timers, sound/delay, and scheduled guards. Completion skips the latter operations. Death stops subsequent gameplay. A committed Died or LevelCleared snapshot ends the round before the separate transition interval changes lives or actor identity.
+
+Death loses one life and plays the descending 24-note tune, appended to any remaining notes, followed by an empty sound section. Zero lives produces GameOver or initials entry. Otherwise the current board reloads. Completion increases displayed level and lives, awards fifteen increments of 100 with three notes each, and loads the next board. End of the configured board list wraps to its beginning and increases difficulty. Skip-level control advances board selection through the death transition without an ordinary life loss.
+
+Waiting, Paused, HighScores, Initials, and GameOver are explicit non-gameplay intervals with 5,000-cycle polling budgets. Waiting accepts a key and retains a movement command when appropriate; Escape resumes pause. Any game-over key starts a new game. Return during gameplay shows high scores; a key or five-million-cycle timeout restores background and gameplay. No game movement runs during these intervals.
+
+High scores rank strictly by `(level, score)`, with at most ten entries. A qualifying eligible nonzero score inserts three blank initials. Letters, digits, and period enter up to three characters; Backspace moves the cursor back and Return confirms. SDL loads `highscores.json` when present, otherwise the original disk table, and writes only a changed table on normal exit. Invalid files are errors. Capture and replay use the table embedded in configuration and never depend on current filesystem scores.
+
+Observation and trace replay
+----------------------------
+
+The observer consumes committed snapshots and a transient occurrence journal; it does not simulate gameplay rules. Snapshots contain session level/attempt/phase/score/lives/exit availability, actor cell/subcell/facing/motion/action/lifecycle/carried gold, both logical terrain maps, pending hidden ladders, holes with generations, and high scores. Scheduler internals, delay preferences, animation bytes, and countdown values remain execution state; visible consequences are observed. Gold identity is a location or carrier, not an invented permanent identifier.
+
+The sole cycle-based record is interval start as a delta from the previous start. Events inside are untimed. Empty intervals remain for input addressing. A final delta closes the last interval. Net snapshot changes are atomic and canonical by identity. Occurrences are not reapplied as mutations. Episodes preserve order per subject; independent subjects sort canonically. Consecutive contact runs sort and deduplicate, while non-contact occurrences retain their order. Observed inputs retain order and observation ordinal; this port supports at most one keyboard observation, ordinal zero, per interval.
+
+Trace format version 2 carries reference/configuration identity, initial snapshot, rounds, final duration, and final snapshot. Parsing checks domains, identities, lengths, canonical ordering, interval numbers, clock overflow, change preconditions, and the resulting terminal state. Structural validity alone is not execution validation.
+
+Replay constructs a fresh Run from embedded configuration and compares initial identity/state. For each expected interval it injects only its observed key through the keyboard device, executes the appropriate phase, and compares the independently generated round exactly. Expected changes and occurrences never drive execution. It also compares final state and duration, rejecting the first mismatch. Delayed keyboard deliveries can be injected at their observation interval because they had no prior observable effect. Unobserved host events are intentionally absent. Same-implementation comparison has zero tolerance; later emulator cross-validation may introduce interval timing tolerance without accepting gameplay differences.
+
+Trace capture is optional during SDL play. Disabling it before execution avoids retaining round snapshots and journals. Headless capture accepts an explicit input schedule for development; this is not the later compact recording/playback feature. The earlier guard-free probe remains available for focused subset tests; full sessions use Run and include guards and transitions.
+
+Timing and fidelity limits
+--------------------------
+
+Virtual cycles are derived from local sound/graphics analysis and representative gameplay block budgets; they do not depend on host execution speed. Hires helpers accumulate costs, drained before sound or interval completion. Exact helper formulas, page crossings, and rounded budgets are documented in `sources/analysis/TIMING.md`. Host sleeps target absolute deadlines at nominal NTSC 1,023,000 Hz, including multiple checkpoints per round. Headless execution does not sleep.
+
+Sound countdown and scanline lookup costs are locally instruction-derived. Graphics loops account for alignment and indexed page crossings, with representative setup costs. Gameplay dispatch, movement, guard route scans, timer scans, and polling use rounded local budgets. They omit some caller/setup and branch-path differences. Original clock stretching, disk delays, loading/iris timing, and complete transition presentation are not modeled. Deterministic round-trip timing proves accounting consistency, not cycle accuracy against an Apple II.
+
+The original attract/demo mode, level editor, joystick devices, iris effect, and spinning game-over presentation are outside this keyboard gameplay milestone. RGB artifacts and host speaker filtering are approximations. Sound-buffer overflow and impossible resurrection boards fail cleanly. These differences remain explicit so later original-machine validation does not mistake internal replay success for original equivalence.
+
+Validation coverage
+-------------------
+
+`make check` passes formatting, warning-free Clippy, and 42 behavioral tests. Tests include all 150 original boards through loading and guarded execution, serialized full-session capture/reexecution on each board, repeated keyboard delivery, persistent motion and gravity polling, gold pickup, thirteen-call digging, hole refill, guard scheduling/carrying/resurrection, death/restart/game over, level advancement, pause/speed/mute, high-score entry, canonical contacts, and negative state/timing/configuration traces. CLI tests capture and replay real files, reject altered timing, and replay a trace produced by SDL with dummy audio/video drivers. No display was available for a headed visual check. No external emulator has been selected or instrumented.

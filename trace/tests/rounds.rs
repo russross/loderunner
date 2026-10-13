@@ -28,6 +28,7 @@ fn initial() -> Snapshot {
         background: vec![Tile::Empty; 448],
         hidden_ladders: vec![],
         holes: vec![],
+        high_scores: vec![],
     }
 }
 
@@ -130,4 +131,36 @@ fn transient_episode_order_remains_significant() {
         )
         .unwrap();
     assert_eq!(round.episodes[0].events[0], Occurrence::GoldCollected);
+}
+
+#[test]
+fn repeated_and_reordered_contacts_canonicalize_within_an_episode() {
+    let state = initial();
+    let subject = Subject::Actor(ActorId::Player);
+    let contact = |col| Occurrence::Contact {
+        other: Subject::Cell(Cell::new(col, 5).unwrap()),
+    };
+    let mut first = Observer::new(state.clone()).unwrap();
+    let mut second = Observer::new(state.clone()).unwrap();
+    let a = first
+        .finish_round(
+            0,
+            state.clone(),
+            vec![],
+            vec![
+                (subject, contact(6)),
+                (subject, contact(4)),
+                (subject, contact(6)),
+            ],
+        )
+        .unwrap();
+    let b = second
+        .finish_round(
+            0,
+            state,
+            vec![],
+            vec![(subject, contact(4)), (subject, contact(6))],
+        )
+        .unwrap();
+    assert_eq!(a, b);
 }

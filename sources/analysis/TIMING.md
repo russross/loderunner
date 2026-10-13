@@ -27,14 +27,49 @@ A normal low/pitch countdown step costs ten cycles: DEY, taken BNE, DEX, taken B
 
 The first pitch countdown starts with the duration argument, not the saved pitch; subsequent countdowns start with pitch. The total number of low decrements is `(high_count-1)*256+low_count`, interpreting a zero byte count as 256. The Rust helper advances whole runs between low-counter wraps and pitch reloads. It retains each speaker edge without simulating individual original instructions.
 
-Coverage limits
----------------
-
-These helpers have local timing accounting. Sprite rendering and level initialization currently have no charged timing. Their timing analysis must be completed before declaring gameplay round-trip timing established. RGB decoding, host texture updates, and real storage parsing are host work, not original instruction costs.
-
 PLAY_SOUND at $8811
 -------------------
 
 A buffered note reaches PLAY_NOTE after 19 cycles including the calling JSR. After the note, LDY/DEC/LDA/SEC/SBC take 17 cycles. Equal duration adds a taken BEQ, SEC, RTS: 28 total post-note cycles. Longer duration adds untaken BEQ and taken BCC: 30 total. Shorter duration adds two untaken branches, TAX, JSR, SEC, RTS: 37 plus SOUND_DELAY1 cost. These indexed buffers cannot cross pages for supported note indices 1 through 127.
 
 With no buffered note and falling disabled, the routine consumes 29 cycles plus SOUND_DELAY. Falling enabled consumes 34 cycles before PLAY_NOTE and eight after it. The initial LDY NOTE_INDEX leaves its low counter at zero on this path. All PLAY_SOUND formulas exclude the caller's JSR.
+
+Sprite shifting and graphics loops
+---------------------------------
+
+The shift helper's eleven row iterations read 22 sprite planes, each separated by 104 bytes. Its base accounting is 1,824 cycles, plus one for each indirect indexed plane read whose low address plus sprite index crosses a page: `sum(((plane*104)%256)+sprite >= 256)` for planes 0 through 21. Pattern lookup pages and seven shift alignments remain the original data; no runtime instruction interpreter is needed.
+
+Tile drawing charges `120 + shifted_cost + sum(ROW_TO_ADDR(y+line)) + 11*loop_cost + 5`. The two-byte loop costs 69 cycles per row; the three-byte loop costs 81. The setup budget 120 is representative rather than a path-complete instruction total. The final five adjusts final-loop termination/return accounting.
+
+Actor drawing charges `64 + (half_x>=102) + shifted_cost + 2*sum(row_page_penalties) + 11*loop_cost + 5`. Two-byte and three-byte row loops cost 133 and 170 respectively, including nominal lookup helper costs for both foreground and background. Erasure uses setup 61 and row loops 107 or 131. The horizontal lookup starts at $1C9A, crossing for half-X at least 102. Each actual row supplies both indexed scanline lookup penalties. Sprite width depends on shift: shifts 5 and 6 touch three bytes, other shifts touch two.
+
+These formulas retain the important data-dependent alignment and page-crossing costs. Setup constants and some branch/caller costs remain approximations. Hires accumulates the charges and gameplay drains them before sound or interval completion, preserving the temporal relationship between drawing and speaker edges.
+
+Gameplay and polling budgets
+----------------------------
+
+The procedural translation uses the following rounded local block budgets in addition to graphics and sound charges. These are estimates from the local instruction sequences, not complete enumeration of every execution path.
+
+| Path                              | Cycles                         |
+| --------------------------------- | ------------------------------ |
+| MOVE_PLAYER dispatch              | 200                            |
+| Player left/right/down attempt    | 180                            |
+| Player up attempt                 | 200                            |
+| Digging update                    | 200                            |
+| Score update                      | 350                            |
+| Selected guard update             | 200                            |
+| Guard directional movement        | 180                            |
+| Horizontal guard route-limit step | 75 per scanned cell            |
+| Guard route candidate search      | 100 per candidate/row examined |
+| Hole scan baseline                | 690                            |
+| Active hole processing            | 50 per active timer            |
+| Waiting/menu/pause polling batch  | 5,000                          |
+
+The main loop retains two PLAY_SOUND boundaries when ordinary gameplay reaches both. Completion and death can bypass later work. Transition tunes retain individual note checkpoints. Host audio and graphics are submitted before pacing each checkpoint; replay skips host pacing altogether.
+
+Coverage limits
+---------------
+
+The nominal clock is 1,023,000 Hz. Apple II scanline clock stretching is not represented. Caller JSR and miscellaneous gameplay branch/setup costs are not universally charged. Initial level construction is outside the clock origin; reload/iris and disk timing are not reproduced. RGB conversion, SDL uploads, sample conversion, and real file parsing are host work rather than original instruction costs.
+
+Exact same-implementation trace equality establishes deterministic timing accounting. It does not establish original-machine timing accuracy. External emulator comparison is deferred; the rounded budgets should be refined from demonstrated interval drift when that phase begins.

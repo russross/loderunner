@@ -78,11 +78,38 @@ impl Game {
         let code = self.keyboard.read_mmio(0xc000);
         self.keyboard.write_mmio(0xc010, code);
         let inputs = if code & 0x80 != 0 {
-            if code < 0xa0 {
-                return Err(format!("control key {code:02x} is not implemented yet"));
+            match code {
+                0x9b => self.session.phase = lode_trace::Phase::Paused,
+                0x81 => self.alive = false,
+                0x92 => {
+                    self.session.lives = 1;
+                    self.alive = false;
+                }
+                0x9e => {
+                    self.session.lives = self.session.lives.wrapping_add(1);
+                    self.session.level = self.session.level.wrapping_add(1);
+                    self.eligible_for_score = false;
+                    self.skip_level = true;
+                    self.alive = false;
+                }
+                0x80 => {
+                    self.session.lives = self.session.lives.saturating_add(1);
+                    self.eligible_for_score = false;
+                }
+                0x93 => self.sound.enabled = !self.sound.enabled,
+                0x95 => self.sound.frame_period = self.sound.frame_period.saturating_sub(1),
+                0x88 => self.sound.frame_period = (self.sound.frame_period + 1).min(15),
+                // Keyboard-only control retains the original keyboard-mode command.
+                0x8b => (),
+                0x8d => self.session.phase = lode_trace::Phase::HighScores,
+                0x8a | 0x98 | 0x99 => {
+                    return Err("joystick controls require a controller device".into());
+                }
+                _ => {
+                    self.command = code;
+                    self.command_lr = code;
+                }
             }
-            self.command = code;
-            self.command_lr = code;
             vec![Input {
                 observation: 0,
                 key: code,
@@ -90,6 +117,10 @@ impl Game {
         } else {
             vec![]
         };
+
+        if self.session.phase != lode_trace::Phase::Playing || !self.alive {
+            return Ok(inputs);
+        }
 
         let consumed = match self.command {
             0xc9 => self.try_moving_up(journal)?,
@@ -133,6 +164,7 @@ impl Game {
     }
 
     pub fn add_and_update_score(&mut self, low: u8, high: u8) {
+        self.clock.advance(350);
         self.score.add(low, high);
         self.session.score = self.score.decimal();
         let digits = [
@@ -247,6 +279,7 @@ impl Game {
     }
 
     pub fn try_moving_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.advance(180);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.player.x_adjust < 3
             && (self.player.col == 0
@@ -283,6 +316,7 @@ impl Game {
     }
 
     pub fn try_moving_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.advance(180);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.player.x_adjust >= 2
             && (self.player.col == 27
@@ -319,6 +353,7 @@ impl Game {
     }
 
     pub fn try_moving_up(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.advance(200);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.background[index] != Tile::Ladder {
             if self.player.y_adjust <= 2
@@ -358,6 +393,7 @@ impl Game {
     }
 
     pub fn try_moving_down(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.advance(180);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.player.y_adjust >= 2
             && (self.player.row == 15
@@ -397,6 +433,7 @@ impl Game {
     }
 
     pub fn continue_digging_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.advance(200);
         if self.player.row == 15 || self.player.col == 0 {
             self.dig_direction = 0;
             return Ok(false);
@@ -472,6 +509,7 @@ impl Game {
     }
 
     pub fn continue_digging_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.advance(200);
         if self.player.row == 15 || self.player.col == 27 {
             self.dig_direction = 0;
             return Ok(false);

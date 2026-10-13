@@ -38,6 +38,8 @@ version = "0.1.0"
 dependencies = [
  "lode-trace",
  "sdl2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

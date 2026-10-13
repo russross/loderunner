@@ -101,6 +101,7 @@ impl Game {
     // Positive gold counters also encode the trapped animation and escape delay.
     // Negative counters encode carrying gold; zero is an ordinary active guard.
     pub fn move_guard(&mut self, slot: usize, journal: &mut Journal) -> Result<(), String> {
+        self.clock.advance(200);
         let mut guard = self.load_guard(slot);
         guard.motion = Motion::Standing;
         if guard.gold != 0 && guard.gold < 0x80 {
@@ -327,6 +328,7 @@ impl Game {
         action: GuardAction,
         journal: &mut Journal,
     ) -> Result<(), String> {
+        self.clock.advance(180);
         let index = usize::from(guard.row) * 28 + usize::from(guard.col);
         let blocked = match action {
             GuardAction::Stay => true,
@@ -487,6 +489,8 @@ impl Game {
             }
         }
         let (left, right) = self.guard_horizontal_limits(guard);
+        self.clock
+            .advance(75 * u64::from(guard.col - left + right - guard.col));
         let mut best = 255;
         let mut action = GuardAction::Stay;
         self.consider_guard_routes(
@@ -529,6 +533,7 @@ impl Game {
         best: &mut u8,
         action: &mut GuardAction,
     ) {
+        self.clock.advance(100);
         let index = usize::from(guard.row) * 28 + usize::from(col);
         if guard.row < 15 && !matches!(self.background[index + 28], Tile::Brick | Tile::Stone) {
             let row = self.guard_candidate_below(col, guard.row);
@@ -599,8 +604,9 @@ impl Game {
         (left, right)
     }
 
-    fn guard_candidate_above(&self, col: u8, mut row: u8) -> u8 {
+    fn guard_candidate_above(&mut self, col: u8, mut row: u8) -> u8 {
         loop {
+            self.clock.advance(100);
             let old = usize::from(row) * 28 + usize::from(col);
             if self.background[old] != Tile::Ladder {
                 return row;
@@ -634,8 +640,9 @@ impl Game {
         }
     }
 
-    fn guard_candidate_below(&self, col: u8, mut row: u8) -> u8 {
+    fn guard_candidate_below(&mut self, col: u8, mut row: u8) -> u8 {
         loop {
+            self.clock.advance(100);
             if row == 15 {
                 return 15;
             }

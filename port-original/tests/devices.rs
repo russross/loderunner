@@ -64,6 +64,21 @@ fn speaker_averages_edges_inside_samples() {
 }
 
 #[test]
+fn audio_batch_boundaries_and_pruning_preserve_sample_sequence() {
+    let mut speaker = Speaker::default();
+    for cycle in [2, 7, 13, 23, 41, 70] {
+        speaker.access(cycle);
+    }
+    let expected = speaker.sample_frames(0, 20, 7, 31);
+    let mut batches = speaker.sample_frames(0, 8, 7, 31);
+    speaker.discard_before(8 * 31 / 7);
+    batches.extend(speaker.sample_frames(8, 12, 7, 31));
+    for (actual, expected) in batches.iter().zip(expected) {
+        assert!((actual - expected).abs() < 0.00001);
+    }
+}
+
+#[test]
 fn delay_counter_wrap_is_preserved() {
     assert_eq!(sound_delay1(0), 906 * 256 + 5);
     assert_eq!(sound_delay(6), 12695);

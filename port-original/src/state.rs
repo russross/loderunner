@@ -48,6 +48,8 @@ pub struct Holes {
 }
 
 pub struct Game {
+    pub high_scores: Vec<lode_trace::HighScore>,
+    pub eligible_for_score: bool,
     pub active: [Tile; 448],
     pub background: [Tile; 448],
     pub player: Player,
@@ -68,6 +70,7 @@ pub struct Game {
     pub hole_generations: [u32; 448],
     pub resurrection_col: u8,
     pub difficulty: u8,
+    pub skip_level: bool,
     pub hires: Hires,
     pub keyboard: Keyboard,
     pub speaker: Speaker,
@@ -79,6 +82,8 @@ impl Game {
     pub fn load_level(record: &[u8; 256], level: u8, paced: bool) -> Result<Self, String> {
         let tiles = decode_level(record);
         let mut game = Self {
+            high_scores: vec![],
+            eligible_for_score: true,
             active: tiles,
             background: tiles,
             player: Player {
@@ -114,6 +119,7 @@ impl Game {
             hole_generations: [0; 448],
             resurrection_col: 0,
             difficulty: 0,
+            skip_level: false,
             hires: Hires::default(),
             keyboard: Keyboard::default(),
             speaker: Speaker::default(),
@@ -185,6 +191,8 @@ impl Game {
         // The tile player was already drawn at its initial position. Drawing the
         // same bits here changes nothing; overlap is deliberately ignored on load.
         draw_sprite_at_pixels(&mut game.hires, sprite, x, y);
+        game.put_status();
+        game.hires.take_cycles();
         Ok(game)
     }
 
@@ -234,7 +242,11 @@ impl Game {
                     Facing::Right
                 },
                 motion: self.guards.motions[slot].unwrap_or(Motion::Standing),
-                action: if (1..0x7f).contains(&self.guards.gold_timers[slot]) {
+                action: if self.guards.resurrection_timers[slot] != 0 {
+                    Action::None
+                } else if (1..=6).contains(&self.guards.gold_timers[slot]) {
+                    Action::ClimbingOut
+                } else if (7..0x7f).contains(&self.guards.gold_timers[slot]) {
                     Action::Trapped
                 } else {
                     Action::None
@@ -271,6 +283,7 @@ impl Game {
         let mut hidden_ladders = self.hidden_ladders.clone();
         hidden_ladders.sort();
         Snapshot {
+            high_scores: self.high_scores.clone(),
             session: self.session.clone(),
             actors,
             active: self.active.to_vec(),

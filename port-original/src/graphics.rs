@@ -1,8 +1,16 @@
 use crate::IMAGE;
 use crate::devices::hires::Hires;
+use crate::timing::row_to_addr;
 
 const MASK0: [u8; 7] = [0, 1, 3, 7, 15, 31, 63];
 const MASK1: [u8; 7] = [0xf8, 0xf0, 0xe0, 0xc0, 0x80, 0xfe, 0xfc];
+
+fn shifted_cycles(sprite: u8) -> u64 {
+    let penalties = (0..22)
+        .filter(|plane| (plane * 104) % 256 + usize::from(sprite) >= 256)
+        .count();
+    1824 + penalties as u64
+}
 
 pub fn row_address(page: usize, row: u8) -> u16 {
     let low = u16::from(IMAGE[0x1a85 + usize::from(row)]);
@@ -42,6 +50,12 @@ pub fn draw_sprite(hires: &mut Hires, page: usize, sprite: u8, col: u8, row: u8)
     let shift = IMAGE[0x1c7e + usize::from(col)];
     let block = compute_shifted_sprite(sprite, shift);
     let width = if shift >= 5 { 3 } else { 2 };
+    let rows = (0..11).map(|line| row_to_addr(y + line)).sum::<u64>();
+    // Local loop totals exclude row helper cost, which is summed for actual rows.
+    // Prefix costs are representative; addressing and loop costs retain exact inputs.
+    hires.account_cycles(
+        120 + shifted_cycles(sprite) + rows + 11 * if width == 2 { 69 } else { 81 } + 5,
+    );
     for line in 0..11 {
         let address = row_address(page, y + line as u8) + u16::from(byte);
         for column in 0..width {
@@ -65,6 +79,14 @@ pub fn draw_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) -
     let shift = IMAGE[0x1d26 + usize::from(half_x)];
     let block = compute_shifted_sprite(sprite, shift);
     let width = if shift >= 5 { 3 } else { 2 };
+    let penalties = (0..11).map(|line| row_to_addr(y + line) - 23).sum::<u64>();
+    hires.account_cycles(
+        64 + u64::from(half_x >= 102)
+            + shifted_cycles(sprite)
+            + 2 * penalties
+            + 11 * if width == 2 { 133 } else { 170 }
+            + 5,
+    );
     let mut overlap = 0;
     for line in 0..11 {
         let address = row_address(0, y + line as u8) + u16::from(byte);
@@ -83,6 +105,14 @@ pub fn erase_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) 
     let shift = IMAGE[0x1d26 + usize::from(half_x)];
     let block = compute_shifted_sprite(sprite, shift);
     let width = if shift >= 5 { 3 } else { 2 };
+    let penalties = (0..11).map(|line| row_to_addr(y + line) - 23).sum::<u64>();
+    hires.account_cycles(
+        61 + u64::from(half_x >= 102)
+            + shifted_cycles(sprite)
+            + 2 * penalties
+            + 11 * if width == 2 { 107 } else { 131 }
+            + 5,
+    );
     for line in 0..11 {
         let address = row_address(0, y + line as u8) + u16::from(byte);
         for column in 0..width {

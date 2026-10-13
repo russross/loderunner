@@ -17,6 +17,8 @@ from typing import TypeAlias
 Json: TypeAlias = None | bool | int | str | list["Json"] | dict[str, "Json"]
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE = ROOT / "sources" / "lode_runner_reveng"
+MACHINE = "apple2ee"
+CPU = "w65c02"
 
 
 class Mode(Enum):
@@ -69,7 +71,8 @@ def parse_boundaries(path: Path, mode: Mode, rounds: int) -> tuple[str, list[Bou
     if not records or records[0].get("kind") != "header":
         raise ValueError("MAME did not emit a probe header")
     version = records[0].get("version")
-    if not isinstance(version, str) or records[0].get("mode") != mode.value:
+    if (not isinstance(version, str) or records[0].get("mode") != mode.value
+            or records[0].get("machine") != MACHINE or records[0].get("cpu") != CPU):
         raise ValueError("MAME probe identity mismatch")
     if records[-1].get("kind") != "complete":
         raise ValueError(f"MAME probe did not finish: {records[-1]}")
@@ -103,28 +106,6 @@ def parse_boundaries(path: Path, mode: Mode, rounds: int) -> tuple[str, list[Bou
     return version, boundaries
 
 
-# Synthetic stand-ins are confined to generated artifacts and deliberately fail
-# ROM checksum audits. They contain no Apple firmware and never boot a disk.
-def synthetic_roms(work: Path) -> Path:
-    root = work / "synthetic-roms"
-    directory = root / "apple2p"
-    directory.mkdir(parents=True, exist_ok=True)
-    sizes = {
-        "341-0036.chr": 2048, "341-0011.d0": 2048, "341-0012.d8": 2048,
-        "341-0013.e0": 2048, "341-0014.e8": 2048, "341-0015.f0": 2048,
-        "341-0020-00.f8": 2048, "sc01a.bin": 512,
-        "341-0027-a.p5": 256, "341-0028-a.rom": 256,
-    }
-    for name, size in sizes.items():
-        data = bytearray(size)
-        if name == "341-0011.d0":
-            data[:3] = bytes.fromhex("4c00d0")
-        if name == "341-0020-00.f8":
-            data[-4:-2] = bytes.fromhex("00d0")
-        (directory / name).write_bytes(data)
-    return root
-
-
 def first_level() -> bytes:
     data = bytearray()
     selected = False
@@ -146,7 +127,7 @@ def deliveries(mode: Mode) -> list[dict[str, int]]:
 # Each launch gets separate configuration directories and output files. A host
 # timeout bounds stalled debugger setup even while emulated time is stopped.
 def launch(mame: str, work: Path, rompath: str | None, mode: Mode, run: int) -> tuple[str, list[Boundary]]:
-    directory = work / f"{mode.value}-{run}"
+    directory = work / MACHINE / f"{mode.value}-{run}"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "boundaries.jsonl"
     rounds = 8 if mode == Mode.SYNTHETIC else 20
@@ -158,7 +139,7 @@ def launch(mame: str, work: Path, rompath: str | None, mode: Mode, run: int) -> 
     config_path = directory / "config.json"
     config_path.write_text(json.dumps(config))
     path.unlink(missing_ok=True)
-    args = [mame, "apple2p", "-video", "none", "-sound", "none", "-debug",
+    args = [mame, MACHINE, "-video", "none", "-sound", "none", "-debug",
             "-debugger", "none", "-nothrottle", "-skip_gameinfo", "-seconds_to_run", "20",
             "-autoboot_script", str(Path(__file__).with_name("probe.lua")),
             "-cfg_directory", str(directory / "cfg"), "-nvram_directory", str(directory / "nvram"),
@@ -172,7 +153,8 @@ def launch(mame: str, work: Path, rompath: str | None, mode: Mode, run: int) -> 
         result = subprocess.run(args, cwd=directory, env=environment, stdout=log,
                                 stderr=subprocess.STDOUT, timeout=30, check=False)
     log_text = log_path.read_text()
-    if result.returncode or "[LUA ERROR]" in log_text or not path.exists():
+    if (result.returncode or "[LUA ERROR]" in log_text or "WRONG CHECKSUMS" in log_text
+            or "WARNING:" in log_text or not path.exists()):
         raise ValueError(f"MAME failed ({result.returncode}); inspect {log_path}")
     return parse_boundaries(path, mode, rounds)
 
@@ -213,26 +195,20 @@ def main() -> int:
     parser.add_argument("--mame", default=shutil.which("mame") or "/usr/games/mame")
     parser.add_argument("--work", type=Path, default=ROOT / "artifacts" / "mame-poc")
     parser.add_argument("--rompath", help="MAME ROM search path; otherwise use MAME configuration")
-    parser.add_argument("--synthetic-roms", action="store_true", help="generate non-Apple ROM stand-ins for hook tests")
     options = parser.parse_args()
     try:
         work = options.work.resolve()
         work.mkdir(parents=True, exist_ok=True)
-        if options.synthetic_roms and options.rompath:
-            raise ValueError("choose --rompath or --synthetic-roms")
-        rompath = str(synthetic_roms(work)) if options.synthetic_roms else options.rompath
         (work / "level-1.bin").write_bytes(first_level())
-        if options.synthetic_roms:
-            print(f"Synthetic ROM checksum warnings are expected; full MAME logs remain under {work}")
         for mode in Mode:
-            first = launch(options.mame, work, rompath, mode, 1)
-            second = launch(options.mame, work, rompath, mode, 2)
+            first = launch(options.mame, work, options.rompath, mode, 1)
+            second = launch(options.mame, work, options.rompath, mode, 2)
             if first != second:
                 raise ValueError(f"{mode.value}: repeated runs differ")
             version, boundaries = first
             verify(mode, boundaries)
             elapsed = boundaries[-1].cycles - boundaries[0].cycles
-            print(f"MAME {version}: {mode.value}, {len(boundaries) - 1} intervals, {elapsed} cycles, identical repeated snapshots")
+            print(f"MAME {version} {MACHINE}/{CPU}: {mode.value}, {len(boundaries) - 1} intervals, {elapsed} cycles, identical repeated snapshots")
         return 0
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"mame-poc: {error}", file=sys.stderr)

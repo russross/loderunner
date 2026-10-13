@@ -5,13 +5,13 @@ Run the Debian-release capability checks:
 
     make -C sources/mame-poc check
 
-Requires MAME, Python 3.11+, uv, and ty. Tested with Debian MAME 0.276. No MAME rebuild is required. The script has no Python package dependencies. `make mame-poc` from the repository root runs the same checks.
+Requires MAME, an audited enhanced Apple IIe ROM set (`apple2ee`), Python 3.11+, uv, and ty. Tested with Debian MAME 0.276 and its W65C02 device. No MAME rebuild is required. The script has no Python package dependencies. `make mame-poc` from the repository root runs the same checks.
 
-`check` generates synthetic ROM stand-ins in `artifacts/mame-poc/`, explicitly reports their expected checksum warnings, and preserves full MAME logs. They contain no Apple firmware. With an existing MAME ROM set, use:
+`check` uses the installed ROMs and preserves full MAME logs. It rejects checksum failures and process warnings. To override MAME's configured ROM search path, use:
 
     make -C sources/mame-poc probe ROMPATH=/path/to/roms
 
-Omit ROMPATH to use MAME's configured search paths. Both commands skip normal ROM/disk boot and load test code at a stopped reset boundary. No external ROMs are downloaded or committed.
+Omit ROMPATH to use MAME's configured search paths. Both commands skip normal ROM/disk boot and load test code at a stopped reset boundary. The synthetic mode describes a short test program, not substitute firmware. No external ROMs are downloaded or committed.
 
 What the checks establish
 -------------------------
@@ -21,6 +21,8 @@ What the checks establish
 *   Mapped RAM snapshots, C000 keyboard substitution, C010 read/write acknowledgement, and C030 speaker observations.
 *   An eight-iteration synthetic loop with independently calculated 23-cycle intervals, repeated key delivery, and persistent acknowledged codes.
 *   Twenty rounds of unchanged original gameplay code at $60E4, before MOVE_PLAYER, including movement, stopping, digging, guard updates, and sound. Each mode runs twice and must reproduce identical snapshots and timing.
+
+Each header records and verifies `apple2ee` and `w65c02`, preventing results from silently mixing machine models. Enhanced IIe uses a CMOS CPU rather than the original Apple II's NMOS 6502. This short gameplay schedule has the same cycle totals as the initial II+ probe; other instruction paths, including decimal arithmetic, can differ by CPU model. Later timing validation must account for that choice.
 
 Original-code setup
 -------------------
@@ -43,11 +45,17 @@ The periodic callback runs only after an execution breakpoint has stopped the CP
 Artifacts and cleanup
 ---------------------
 
-Each launch preserves `config.json`, `boundaries.jsonl`, and `mame.log` in a separate directory under `artifacts/mame-poc/`. Errors name the relevant log, and a 30-second host timeout bounds startup or debugger stalls. The emulator also has a twenty-second virtual-time limit if expected boundaries never arrive. Generated records are excluded from Git.
+Each launch preserves `config.json`, `boundaries.jsonl`, and `mame.log` in a separate directory under `artifacts/mame-poc/apple2ee/`. Errors name the relevant log, and a 30-second host timeout bounds startup or debugger stalls. The emulator also has a twenty-second virtual-time limit if expected boundaries never arrive. Generated records are excluded from Git.
 
-`mostlyclean` removes Python bytecode; `clean` also removes the uv environment and generated ROM/level inputs. Neither removes probe records, MAME configuration, or process logs.
+`mostlyclean` removes Python bytecode; `clean` also removes the uv environment and generated level input. Neither removes installed ROMs, probe records, MAME configuration, or process logs.
+
+
+Disk source status
+------------------
+
+The reference project reconstructs the Apple II Reset Vector crack. Normal boot from a preferred Apple II 4am disk remains pending an appropriate image. The downloaded `sources/Lode Runner v1.0 (4am crack).zip` contains the Macintosh version: its Disk Copy 4.2 image has 409,600 data bytes, 9,600 tag bytes, and a Macintosh File System signature. The accompanying screenshot explicitly credits the Macintosh version. Those archives remain unchanged and are not used for Apple II validation.
 
 API references
 --------------
 
-The implementation uses the documented [Lua debugger interface](https://docs.mamedev.org/luascript/ref-debugger.html) and [memory taps](https://docs.mamedev.org/luascript/ref-mem.html). Compatibility findings were checked against the [0.276 Lua bindings](https://github.com/mamedev/mame/blob/mame0276/src/frontend/mame/luaengine_debug.cpp), [6502 register implementation](https://github.com/mamedev/mame/blob/mame0276/src/devices/cpu/m6502/m6502.cpp), and the installed cheat plugin's stopped-breakpoint handling pattern.
+The implementation uses the documented [Lua debugger interface](https://docs.mamedev.org/luascript/ref-debugger.html) and [memory taps](https://docs.mamedev.org/luascript/ref-mem.html). Compatibility findings were checked against the [0.276 Lua bindings](https://github.com/mamedev/mame/blob/mame0276/src/frontend/mame/luaengine_debug.cpp), [6502 register implementation](https://github.com/mamedev/mame/blob/mame0276/src/devices/cpu/m6502/m6502.cpp), [enhanced IIe configuration](https://github.com/mamedev/mame/blob/mame0276/src/mame/apple/apple2e.cpp), and the installed cheat plugin's stopped-breakpoint handling pattern.

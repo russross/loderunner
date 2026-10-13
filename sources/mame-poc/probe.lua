@@ -119,6 +119,7 @@ end
 local reset_vector = space:read_u16(0xfffc)
 local reset_breakpoint = cpu.debug:bpset(reset_vector, "1", "")
 emit({kind = "header", mode = config.mode, version = emu.app_version(),
+    machine = emu.romname(), cpu = cpu.shortname,
     boundary = boundary, reset_vector = reset_vector})
 local function stopped()
     if finished or debugger.execution_state ~= "stop" then return end

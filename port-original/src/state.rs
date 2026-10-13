@@ -2,6 +2,7 @@ use crate::devices::hires::Hires;
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
 use crate::graphics::{draw_sprite, draw_sprite_at_pixels};
+use crate::score::Score;
 use crate::sound::Sound;
 use crate::storage::decode_level;
 use crate::timing::Clock;
@@ -60,6 +61,9 @@ pub struct Game {
     pub didnt_pick_up_gold: bool,
     pub dig_direction: i8,
     pub dig_animation: u8,
+    pub score: Score,
+    pub falling_sound: bool,
+    pub falling_pitch: u8,
     pub hires: Hires,
     pub keyboard: Keyboard,
     pub speaker: Speaker,
@@ -100,6 +104,9 @@ impl Game {
             didnt_pick_up_gold: true,
             dig_direction: 0,
             dig_animation: 0,
+            score: Score::default(),
+            falling_sound: false,
+            falling_pitch: 0x20,
             hires: Hires::default(),
             keyboard: Keyboard::default(),
             speaker: Speaker::default(),

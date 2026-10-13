@@ -2,6 +2,8 @@
 
 pub mod devices;
 pub mod graphics;
+pub mod player;
+pub mod score;
 pub mod sound;
 pub mod state;
 pub mod storage;

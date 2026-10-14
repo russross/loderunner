@@ -6,12 +6,14 @@ use crate::score::Score;
 use crate::sound::Note;
 use crate::state::{Game, Progress};
 use crate::storage::{LevelRecord, decode_level, original_high_scores, original_level};
-use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Trace};
+use lode_trace::{
+    FORMAT_VERSION, Header, HighScore, Input, Observer, Phase, Round, Snapshot, Tile, Trace,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Configuration {
-    pub high_scores: Vec<lode_trace::HighScore>,
+    pub high_scores: Vec<HighScore>,
     pub levels: Vec<LevelRecord>,
     pub start: usize,
     pub wait_on_level_start: bool,
@@ -38,7 +40,7 @@ impl Configuration {
             return Err("invalid session level configuration".into());
         }
         for record in &self.levels {
-            if !decode_level(&record.0).contains(&lode_trace::Tile::Player) {
+            if !decode_level(&record.0).contains(&Tile::Player) {
                 return Err("level contains no player".into());
             }
         }
@@ -52,7 +54,7 @@ pub struct Run {
     level_index: usize,
     header: Header,
     observer: Observer,
-    rounds: Vec<lode_trace::Round>,
+    rounds: Vec<Round>,
     last_start: u64,
     tracing: bool,
     initials: Option<(usize, usize)>,
@@ -121,59 +123,10 @@ impl Run {
             self.game.keyboard.deliver(code);
         }
         let mut journal = Journal::new();
-        let mut inputs = Vec::new();
-        match phase {
-            Phase::HighScores | Phase::Initials => {
-                if let Some(code) = self.game.keyboard.observe() {
-                    inputs.push(Input {
-                        observation: 0,
-                        key: code,
-                    });
-                    if self.game.session.phase == Phase::Initials {
-                        self.enter_initial(code);
-                    } else {
-                        self.game.restore_background();
-                        self.game.session.phase = Phase::Playing;
-                    }
-                } else if self.game.session.phase == Phase::HighScores
-                    && self.game.clock.cycles >= self.high_score_until
-                {
-                    self.game.restore_background();
-                    self.game.session.phase = Phase::Playing;
-                }
-                self.game.clock.events.add(TimingEvent::Poll, 1);
-            }
-            Phase::Died | Phase::LevelCleared => self.transition()?,
-            Phase::Waiting | Phase::Paused | Phase::GameOver => {
-                if let Some(code) = self.game.keyboard.observe() {
-                    inputs.push(Input {
-                        observation: 0,
-                        key: code,
-                    });
-                    if self.game.session.phase == Phase::GameOver {
-                        self.level_index = self.configuration.start;
-                        self.reload(true)?;
-                    } else if self.game.session.phase != Phase::Paused
-                        || Control::from_key(code) == Some(Control::Pause)
-                    {
-                        if self.game.session.phase == Phase::Waiting && code >= 0xa0 {
-                            self.game.player.command = Command::from_key(code);
-                        }
-                        self.game.session.phase = Phase::Playing;
-                    }
-                }
-                // Polls represent bounded batches of device reads. Their cost
-                // belongs to the same model as movement, graphics and sound.
-                self.game.clock.events.add(TimingEvent::Poll, 1);
-            }
-            Phase::Playing => {
-                inputs = self.game.play_round(&mut journal)?;
-                if self.game.session.phase == Phase::HighScores {
-                    self.game.show_high_scores();
-                    self.high_score_until = self.game.clock.cycles + 5_000_000;
-                }
-            }
-        }
+        let inputs = self.advance_phase(phase, &mut journal)?;
+
+        // Boundary events describe the completed phase before model evaluation.
+        // All queued graphics and audio belong to this single committed interval.
         match self.game.session.phase {
             Phase::Paused if phase == Phase::Playing => {
                 self.game.clock.events.add(TimingEvent::Pause, 1)
@@ -199,6 +152,9 @@ impl Run {
             .clock
             .commit(&self.timing_model, &interval, &mut self.game.speaker);
         self.last_model_cycles = Some(self.game.clock.cycles - self.last_start);
+
+        // Submit committed audio and graphics before pacing. Observation records
+        // the same boundary for capture, replay and external machine validation.
         checkpoint(&mut self.game)?;
         self.game.clock.checkpoint();
         self.last_timing = Some(interval.clone());
@@ -211,6 +167,56 @@ impl Run {
             );
         }
         Ok(())
+    }
+
+    // Phase dispatch advances gameplay, a transition or one bounded input poll.
+    // It returns only keys actually observed, including a key retained in the latch.
+    fn advance_phase(&mut self, phase: Phase, journal: &mut Journal) -> Result<Vec<Input>, String> {
+        if phase == Phase::Playing {
+            let inputs = self.game.play_round(journal)?;
+            if self.game.session.phase == Phase::HighScores {
+                self.game.show_high_scores();
+                self.high_score_until = self.game.clock.cycles + 5_000_000;
+            }
+            return Ok(inputs);
+        }
+        if matches!(phase, Phase::Died | Phase::LevelCleared) {
+            self.transition()?;
+            return Ok(Vec::new());
+        }
+
+        let code = self.game.keyboard.observe();
+        match (phase, code) {
+            (Phase::Initials, Some(code)) => self.enter_initial(code),
+            (Phase::HighScores, key)
+                if key.is_some() || self.game.clock.cycles >= self.high_score_until =>
+            {
+                self.game.restore_background();
+                self.game.session.phase = Phase::Playing;
+            }
+            (Phase::GameOver, Some(_)) => {
+                self.level_index = self.configuration.start;
+                self.reload(true)?;
+            }
+            (Phase::Waiting, Some(code)) => {
+                if code >= 0xa0 {
+                    self.game.player.command = Command::from_key(code);
+                }
+                self.game.session.phase = Phase::Playing;
+            }
+            (Phase::Paused, Some(code)) if Control::from_key(code) == Some(Control::Pause) => {
+                self.game.session.phase = Phase::Playing;
+            }
+            _ => (),
+        }
+        self.game.clock.events.add(TimingEvent::Poll, 1);
+        Ok(code
+            .into_iter()
+            .map(|key| Input {
+                observation: 0,
+                key,
+            })
+            .collect())
     }
 
     fn transition(&mut self) -> Result<(), String> {
@@ -294,7 +300,7 @@ impl Run {
         }
         self.game.high_scores.insert(
             index,
-            lode_trace::HighScore {
+            HighScore {
                 initials: [b' '; 3],
                 level: rank.0,
                 score: rank.1,
@@ -342,7 +348,7 @@ impl Run {
     }
 
     /// Publish only the newest committed interval without copying trace history.
-    pub fn validation_interval(&self) -> Option<(lode_trace::Round, u64, lode_trace::Snapshot)> {
+    pub fn validation_interval(&self) -> Option<(Round, u64, Snapshot)> {
         self.rounds.last().map(|round| {
             (
                 round.clone(),

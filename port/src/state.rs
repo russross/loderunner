@@ -9,7 +9,7 @@ use crate::sound::Sound;
 use crate::storage::decode_level;
 use crate::timing::Clock;
 use lode_trace::{
-    Action, Actor, ActorId, Cell, Facing, Hole, Life, Phase, Session, Snapshot, Tile,
+    Action, Actor, ActorId, Cell, Facing, HighScore, Hole, Life, Phase, Session, Snapshot, Tile,
 };
 
 pub struct Game {
@@ -27,7 +27,7 @@ pub struct Game {
     pub resurrection_col: u8,
     pub difficulty: u8,
     pub skip_level: bool,
-    pub high_scores: Vec<lode_trace::HighScore>,
+    pub high_scores: Vec<HighScore>,
     pub eligible_for_score: bool,
     pub display: Display,
     pub scene: Scene,

@@ -1,4 +1,5 @@
 use lode_mame_validation::{Options, validate_stream};
+use lode_port::devices::keyboard::{Control, ESCAPE, RETURN};
 use lode_port::render::{HEIGHT, WIDTH};
 use lode_port::session::{Configuration, Run, replay};
 use lode_port::timing::{Clock, NTSC_CPU_HZ};
@@ -116,11 +117,11 @@ fn save_trace(path: &PathBuf, trace: &Trace) -> Result<(), String> {
 fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
     if modifiers.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
         return match key {
-            Keycode::A => Some(0x81),
-            Keycode::R => Some(0x92),
-            Keycode::S => Some(0x93),
-            Keycode::Left => Some(0x88),
-            Keycode::Right => Some(0x95),
+            Keycode::A => Some(Control::Sacrifice as u8),
+            Keycode::R => Some(Control::EndGame as u8),
+            Keycode::S => Some(Control::ToggleSound as u8),
+            Keycode::Left => Some(Control::Slower as u8),
+            Keycode::Right => Some(Control::Faster as u8),
             _ => None,
         };
     }
@@ -132,8 +133,8 @@ fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
         Keycode::Z | Keycode::U => Some(0xd5),
         Keycode::X | Keycode::O => Some(0xcf),
         Keycode::Space => Some(0xa0),
-        Keycode::Escape => Some(0x9b),
-        Keycode::Return => Some(0x8d),
+        Keycode::Escape => Some(ESCAPE),
+        Keycode::Return => Some(RETURN),
         _ => {
             let code = i32::from(key);
             if (32..=126).contains(&code) {

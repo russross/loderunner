@@ -1,5 +1,7 @@
 //! Procedural translation of the Apple II game and its device boundary.
 
+pub mod actors;
+pub mod board;
 pub mod devices;
 pub mod event_timing;
 pub mod graphics;

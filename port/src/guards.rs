@@ -1,97 +1,51 @@
-use crate::IMAGE;
+use crate::actors::{Direction, Guard, GuardMode, Position};
+use crate::board::Board;
 use crate::event_timing::TimingEvent;
-use crate::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
+use crate::graphics::{GUARD_SPRITES, draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
 use crate::player::Journal;
 use crate::sound::Note;
 use crate::state::Game;
-use lode_trace::{ActorId, Cell, Motion, Occurrence, Subject, Tile};
+use lode_trace::{ActorId, Cell, Facing, Motion, Occurrence, Subject, Tile};
+use std::num::NonZeroU8;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GuardAction {
-    Stay,
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-#[derive(Clone, Copy)]
-pub struct Guard {
-    pub slot: usize,
-    pub col: u8,
-    pub row: u8,
-    pub x: u8,
-    pub y: u8,
-    pub animation: u8,
-    pub facing: u8,
-    pub gold: u8,
-    pub motion: Motion,
+struct RouteChoice {
+    distance: u8,
+    direction: Option<Direction>,
 }
 
 impl Game {
-    pub fn load_guard(&self, slot: usize) -> Guard {
-        Guard {
-            slot,
-            col: self.guards.cols[slot],
-            row: self.guards.rows[slot],
-            x: self.guards.x_adjusts[slot],
-            y: self.guards.y_adjusts[slot],
-            animation: self.guards.animations[slot],
-            facing: self.guards.facings[slot],
-            gold: self.guards.gold_timers[slot],
-            motion: self.guards.motions[slot].unwrap_or(Motion::Standing),
-        }
+    fn guard_coordinates(&self, guard: Guard) -> (u8, u8, u8) {
+        let (x, y) = guard.position.pixels();
+        (GUARD_SPRITES[usize::from(guard.animation)], x, y)
     }
-
-    pub fn store_guard(&mut self, guard: Guard) {
-        let slot = guard.slot;
-        self.guards.cols[slot] = guard.col;
-        self.guards.rows[slot] = guard.row;
-        self.guards.x_adjusts[slot] = guard.x;
-        self.guards.y_adjusts[slot] = guard.y;
-        self.guards.animations[slot] = guard.animation;
-        self.guards.facings[slot] = guard.facing;
-        self.guards.gold_timers[slot] = guard.gold;
-        self.guards.motions[slot] = Some(guard.motion);
-    }
-
-    pub fn guard_coordinates(&self, guard: Guard) -> (u8, u8, u8) {
-        let sprite = IMAGE[0x6ccb + usize::from(guard.animation)];
-        let x = (guard.col * 5).wrapping_add(guard.x).wrapping_sub(2);
-        let y = (guard.row * 11).wrapping_add(IMAGE[0x888a + usize::from(guard.y)]);
-        (sprite, x, y)
-    }
-
-    pub fn erase_guard(&mut self, guard: Guard) {
+    fn erase_guard(&mut self, guard: Guard) {
         let (sprite, x, y) = self.guard_coordinates(guard);
         erase_sprite_at_pixels(&mut self.hires, sprite, x, y);
     }
-
-    pub fn draw_guard(&mut self, guard: Guard) {
+    fn draw_guard(&mut self, guard: Guard) {
         let (sprite, x, y) = self.guard_coordinates(guard);
         draw_sprite_at_pixels(&mut self.hires, sprite, x, y);
     }
 
-    pub fn move_guards(&mut self, journal: &mut Journal) -> Result<(), String> {
-        if self.guards.count == 0 {
+    // Difficulty selects a three-phase update pattern. Selected identities rotate
+    // through the concrete guards, stopping immediately when the player dies.
+    pub fn update_guards(&mut self, journal: &mut Journal) -> Result<(), String> {
+        if self.guards.is_empty() {
             return Ok(());
         }
-        self.guards.phase = (self.guards.phase + 1) % 3;
-        let pattern_index = usize::from(self.guards.count) + usize::from(self.difficulty);
-        if pattern_index > 11 {
-            return Err("guard difficulty exceeds original pattern table".into());
-        }
-        let mut pattern = IMAGE[0x6ca7 + pattern_index * 3 + usize::from(self.guards.phase)];
+        let mut pattern = self
+            .guard_schedule
+            .pattern(self.guards.len(), self.difficulty)?;
         while pattern != 0 {
-            let move_next = pattern & 1 != 0;
+            let selected = pattern & 1 != 0;
             pattern >>= 1;
-            if move_next {
-                self.guards.current += 1;
-                if self.guards.current > self.guards.count {
-                    self.guards.current = 1;
-                }
-                self.move_guard(usize::from(self.guards.current), journal)?;
-                if !self.alive {
+            if selected {
+                let index = self.guard_schedule.next_guard(self.guards.len());
+                let mut guard = self.guards[index];
+                guard.motion = Motion::Standing;
+                self.update_guard(&mut guard, journal)?;
+                self.guards[index] = guard;
+                if !self.player.alive {
                     break;
                 }
             }
@@ -99,354 +53,292 @@ impl Game {
         Ok(())
     }
 
-    // Positive gold counters also encode the trapped animation and escape delay.
-    // Negative counters encode carrying gold; zero is an ordinary active guard.
-    pub fn move_guard(&mut self, slot: usize, journal: &mut Journal) -> Result<(), String> {
+    fn update_guard(&mut self, guard: &mut Guard, journal: &mut Journal) -> Result<(), String> {
         self.clock.events.add(TimingEvent::GuardUpdate, 1);
-
-        let mut guard = self.load_guard(slot);
-        guard.motion = Motion::Standing;
-        if guard.gold != 0 && guard.gold < 0x80 {
-            guard.gold -= 1;
-            if guard.gold >= 7 {
-                if guard.gold < 13 {
-                    self.erase_guard(guard);
-                    guard.x = IMAGE[0x6e7f + usize::from(guard.gold - 7)];
-                    self.draw_guard(guard);
-                } else if self.guards.resurrection_timers[slot] == 0 {
-                    self.draw_guard(guard);
+        match guard.mode {
+            GuardMode::Resurrecting { .. } => return Ok(()),
+            GuardMode::Trapped { release_in } => {
+                let remaining = release_in.get() - 1;
+                guard.mode = NonZeroU8::new(remaining).map_or(GuardMode::Roaming, |release_in| {
+                    GuardMode::Trapped { release_in }
+                });
+                if remaining >= 7 {
+                    if remaining < 13 {
+                        self.erase_guard(*guard);
+                        guard
+                            .position
+                            .set_x([2, 1, 2, 3, 2, 1][usize::from(remaining - 7)]);
+                    }
+                    self.draw_guard(*guard);
+                    return Ok(());
                 }
-                self.store_guard(guard);
-                return Ok(());
             }
-        } else if self.guard_should_fall(guard) {
-            self.fall_guard(&mut guard, journal)?;
-            self.store_guard(guard);
-            return Ok(());
+            _ if self.guard_should_fall(*guard) => return self.fall_guard(guard, journal),
+            _ => (),
         }
-        let action = self.determine_guard_move(guard);
-        self.try_guard_move(&mut guard, action, journal)?;
-        self.store_guard(guard);
+        let direction = self.choose_guard_route(*guard);
+        self.move_guard(guard, direction, journal);
         Ok(())
     }
 
     fn guard_should_fall(&self, guard: Guard) -> bool {
-        let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-        if self.background[index] == Tile::Ladder
-            || (self.background[index] == Tile::Rope && guard.y == 2)
+        let position = guard.position;
+        let cell = position.cell;
+        let here = self.board.terrain_at(cell);
+        if here == Tile::Ladder || (here == Tile::Rope && position.y() == 2) {
+            return false;
+        }
+        if position.y() < 2 {
+            return true;
+        }
+        if cell.row == 15 {
+            return false;
+        }
+        let below = Cell {
+            row: cell.row + 1,
+            ..cell
+        };
+        match self.board.at(below) {
+            Tile::Empty | Tile::Player => true,
+            Tile::Guard => false,
+            _ => !matches!(
+                self.board.terrain_at(below),
+                Tile::Brick | Tile::Stone | Tile::Ladder
+            ),
+        }
+    }
+
+    fn check_guard_gold(&mut self, guard: &mut Guard, journal: &mut Journal) {
+        let cell = guard.position.cell;
+        if !guard.position.at_center()
+            || guard.mode.carrying()
+            || self.board.terrain_at(cell) != Tile::Gold
         {
-            return false;
+            return;
         }
-        if guard.y < 2 {
-            return true;
-        }
-        if guard.row == 15 {
-            return false;
-        }
-        if matches!(self.active[index + 28], Tile::Empty | Tile::Player) {
-            return true;
-        }
-        if self.active[index + 28] == Tile::Guard {
-            return false;
-        }
-        !matches!(
-            self.background[index + 28],
-            Tile::Brick | Tile::Stone | Tile::Ladder
-        )
+        guard.mode = GuardMode::Carrying {
+            drop_in: NonZeroU8::new(self.resurrection_col + 1).expect("gold drop delay"),
+        };
+        self.board.terrain[Board::index(cell)] = Tile::Empty;
+        draw_sprite(&mut self.hires, 1, 0, cell.col, cell.row);
+        erase_sprite_at_pixels(&mut self.hires, 7, cell.col * 5, cell.row * 11);
+        journal.push((Subject::Actor(guard.id.actor()), Occurrence::GoldCollected));
     }
 
-    pub fn check_guard_gold(&mut self, guard: &mut Guard, journal: &mut Journal) {
-        if guard.x != 2 || guard.y != 2 || guard.gold & 0x80 != 0 {
+    pub fn drop_guard_gold(&mut self, guard: &mut Guard, journal: &mut Journal) {
+        let GuardMode::Carrying { drop_in } = guard.mode else {
+            return;
+        };
+        if let Some(remaining) = NonZeroU8::new(drop_in.get() - 1) {
+            guard.mode = GuardMode::Carrying { drop_in: remaining };
             return;
         }
-        let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-        if self.background[index] != Tile::Gold {
+        let cell = guard.position.cell;
+        if self.board.terrain_at(cell) != Tile::Empty {
             return;
         }
-        guard.gold = 0xff - self.resurrection_col;
-        self.background[index] = Tile::Empty;
-        draw_sprite(&mut self.hires, 1, 0, guard.col, guard.row);
-        erase_sprite_at_pixels(&mut self.hires, 7, guard.col * 5, guard.row * 11);
+        guard.mode = GuardMode::Roaming;
+        self.board.terrain[Board::index(cell)] = Tile::Gold;
+        draw_sprite(&mut self.hires, 1, 7, cell.col, cell.row);
+        draw_sprite_at_pixels(&mut self.hires, 7, cell.col * 5, cell.row * 11);
         journal.push((
-            Subject::Actor(ActorId::Guard(guard.slot as u8)),
-            Occurrence::GoldCollected,
+            Subject::Actor(guard.id.actor()),
+            Occurrence::GoldDropped { cell },
         ));
     }
 
-    pub fn guard_drop_gold(&mut self, guard: &mut Guard, journal: &mut Journal) {
-        if guard.gold & 0x80 == 0 {
-            return;
+    fn center_guard_x(&mut self, guard: &mut Guard, journal: &mut Journal) {
+        if guard.position.nudge_x() {
+            self.check_guard_gold(guard, journal);
         }
-        guard.gold = guard.gold.wrapping_add(1);
-        if guard.gold != 0 {
-            return;
-        }
-        let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-        if self.background[index] != Tile::Empty {
-            guard.gold = 0xff;
-            return;
-        }
-        self.background[index] = Tile::Gold;
-        draw_sprite(&mut self.hires, 1, 7, guard.col, guard.row);
-        draw_sprite_at_pixels(&mut self.hires, 7, guard.col * 5, guard.row * 11);
-        journal.push((
-            Subject::Actor(ActorId::Guard(guard.slot as u8)),
-            Occurrence::GoldDropped {
-                cell: Cell {
-                    col: guard.col,
-                    row: guard.row,
-                },
-            },
-        ));
     }
-
-    fn nudge_guard_column(&mut self, guard: &mut Guard, journal: &mut Journal) {
-        if guard.x == 2 {
-            return;
+    fn center_guard_y(&mut self, guard: &mut Guard, journal: &mut Journal) {
+        if guard.position.nudge_y() {
+            self.check_guard_gold(guard, journal);
         }
-        if guard.x < 2 {
-            guard.x += 1;
-        } else {
-            guard.x -= 1;
-        }
-        self.check_guard_gold(guard, journal);
     }
-
-    fn nudge_guard_row(&mut self, guard: &mut Guard, journal: &mut Journal) {
-        if guard.y == 2 {
-            return;
-        }
-        if guard.y < 2 {
-            guard.y += 1;
-        } else {
-            guard.y -= 1;
-        }
-        self.check_guard_gold(guard, journal);
-    }
-
     fn occupy_guard_cell(&mut self, guard: Guard, journal: &mut Journal) {
-        let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-        if self.active[index] == Tile::Player {
-            self.alive = false;
+        if self.board.at(guard.position.cell) == Tile::Player {
+            self.player.alive = false;
             journal.push((
                 Subject::Actor(ActorId::Player),
                 Occurrence::Contact {
-                    other: Subject::Actor(ActorId::Guard(guard.slot as u8)),
+                    other: Subject::Actor(guard.id.actor()),
                 },
             ));
         }
-        self.active[index] = Tile::Guard;
+        self.board.occupy(guard.position.cell, Tile::Guard);
     }
 
+    // Falling into brick drops carried gold above the hole before centering.
+    // Centering starts the trap delay, awards points and queues the trap tune.
     fn fall_guard(&mut self, guard: &mut Guard, journal: &mut Journal) -> Result<(), String> {
         self.clock.events.add(TimingEvent::GuardFall, 1);
         self.erase_guard(*guard);
-        self.nudge_guard_column(guard, journal);
-        guard.animation = if guard.facing & 0x80 != 0 { 6 } else { 13 };
-        guard.y += 1;
+        self.center_guard_x(guard, journal);
+        guard.animation = if guard.facing == Facing::Left { 6 } else { 13 };
+        let previous = guard.position.cell;
+        let crossed = guard.position.step(Direction::Down);
         guard.motion = Motion::Falling;
-        if guard.y < 5 {
-            if guard.y == 2 {
-                self.check_guard_gold(guard, journal);
-                let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-                if self.background[index] == Tile::Brick {
-                    if guard.gold & 0x80 != 0 {
-                        self.gold_count = self.gold_count.wrapping_sub(1);
-                    }
-                    guard.gold = IMAGE[0x621d + usize::from(self.difficulty)];
-                    self.add_and_update_score(0x75, 0);
-                    self.sound.load_sound_data(&[
-                        Note {
-                            duration: 6,
-                            pitch: 0x20,
-                        },
-                        Note {
-                            duration: 4,
-                            pitch: 0x30,
-                        },
-                        Note {
-                            duration: 2,
-                            pitch: 0x40,
-                        },
-                    ])?;
-                    journal.push((
-                        Subject::Actor(ActorId::Guard(guard.slot as u8)),
-                        Occurrence::Trapped,
-                    ));
-                }
-            }
-        } else {
-            guard.y = 0;
-            let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            guard.row += 1;
-            let next = index + 28;
-            if self.active[next] == Tile::Player {
-                self.alive = false;
+        if crossed {
+            self.board.leave(previous);
+            if self.board.at(guard.position.cell) == Tile::Player {
+                self.player.alive = false;
                 journal.push((
                     Subject::Actor(ActorId::Player),
                     Occurrence::Contact {
-                        other: Subject::Actor(ActorId::Guard(guard.slot as u8)),
+                        other: Subject::Actor(guard.id.actor()),
                     },
                 ));
             }
-            if self.background[next] == Tile::Brick && guard.gold & 0x80 != 0 {
-                if self.background[index] == Tile::Empty {
-                    self.background[index] = Tile::Gold;
-                    self.active[index] = Tile::Gold;
-                    draw_sprite(&mut self.hires, 1, 7, guard.col, guard.row - 1);
-                    draw_sprite_at_pixels(&mut self.hires, 7, guard.col * 5, (guard.row - 1) * 11);
+            if self.board.terrain_at(guard.position.cell) == Tile::Brick && guard.mode.carrying() {
+                if self.board.terrain_at(previous) == Tile::Empty {
+                    self.board.terrain[Board::index(previous)] = Tile::Gold;
+                    self.board.occupy(previous, Tile::Gold);
+                    draw_sprite(&mut self.hires, 1, 7, previous.col, previous.row);
+                    draw_sprite_at_pixels(&mut self.hires, 7, previous.col * 5, previous.row * 11);
                     journal.push((
-                        Subject::Actor(ActorId::Guard(guard.slot as u8)),
-                        Occurrence::GoldDropped {
-                            cell: Cell {
-                                col: guard.col,
-                                row: guard.row - 1,
-                            },
-                        },
+                        Subject::Actor(guard.id.actor()),
+                        Occurrence::GoldDropped { cell: previous },
                     ));
                 } else {
                     self.gold_count = self.gold_count.wrapping_sub(1);
                 }
-                guard.gold = 0;
+                guard.mode = GuardMode::Roaming;
             }
-            self.active[next] = Tile::Guard;
+            self.board.occupy(guard.position.cell, Tile::Guard);
+        } else if guard.position.y() == 2 {
+            self.check_guard_gold(guard, journal);
+            if self.board.terrain_at(guard.position.cell) == Tile::Brick {
+                if guard.mode.carrying() {
+                    self.gold_count = self.gold_count.wrapping_sub(1);
+                }
+                let delay =
+                    [38, 38, 46, 68, 71, 73, 74, 75, 76, 77, 78][usize::from(self.difficulty)];
+                guard.mode = NonZeroU8::new(delay).map_or(GuardMode::Roaming, |release_in| {
+                    GuardMode::Trapped { release_in }
+                });
+                self.add_score(75);
+                self.sound.load_sound_data(&[
+                    Note {
+                        duration: 6,
+                        pitch: 0x20,
+                    },
+                    Note {
+                        duration: 4,
+                        pitch: 0x30,
+                    },
+                    Note {
+                        duration: 2,
+                        pitch: 0x40,
+                    },
+                ])?;
+                journal.push((Subject::Actor(guard.id.actor()), Occurrence::Trapped));
+            }
         }
         self.draw_guard(*guard);
         Ok(())
     }
 
-    // Movement eligibility differs by direction. A blocked upward escape restores
-    // the positive timer increment; other blocked paths simply store working state.
-    pub fn try_guard_move(
+    // Guards have their own obstacle rules, while positions share cell crossing
+    // with the player. A blocked climb extends an unfinished escape by one tick.
+    pub fn move_guard(
         &mut self,
         guard: &mut Guard,
-        action: GuardAction,
+        direction: Option<Direction>,
         journal: &mut Journal,
-    ) -> Result<(), String> {
+    ) {
         self.clock.events.add(TimingEvent::GuardAttempt, 1);
-
-        let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-        let blocked = match action {
-            GuardAction::Stay => true,
-            GuardAction::Left => {
-                guard.x < 3
-                    && (guard.col == 0
+        let Some(direction) = direction else {
+            return;
+        };
+        let position = guard.position;
+        let cell = position.cell;
+        let index = Board::index(cell);
+        let blocked = match direction {
+            Direction::Left => {
+                position.x() < 3
+                    && (cell.col == 0
                         || matches!(
-                            self.active[index - 1],
+                            self.board.cells[index - 1],
                             Tile::Guard | Tile::Stone | Tile::Brick
                         )
-                        || self.background[index - 1] == Tile::Trap)
+                        || self.board.terrain[index - 1] == Tile::Trap)
             }
-            GuardAction::Right => {
-                guard.x >= 2
-                    && (guard.col == 27
+            Direction::Right => {
+                position.x() >= 2
+                    && (cell.col == 27
                         || matches!(
-                            self.active[index + 1],
+                            self.board.cells[index + 1],
                             Tile::Guard | Tile::Stone | Tile::Brick
                         )
-                        || self.background[index + 1] == Tile::Trap)
+                        || self.board.terrain[index + 1] == Tile::Trap)
             }
-            GuardAction::Up => {
-                guard.y < 3
-                    && (guard.row == 0
+            Direction::Up => {
+                position.y() < 3
+                    && (cell.row == 0
                         || matches!(
-                            self.active[index - 28],
+                            self.board.cells[index - 28],
                             Tile::Brick | Tile::Stone | Tile::Trap | Tile::Guard
                         ))
             }
-            GuardAction::Down => {
-                guard.y >= 2
-                    && (guard.row == 15
+            Direction::Down => {
+                position.y() >= 2
+                    && (cell.row == 15
                         || matches!(
-                            self.active[index + 28],
+                            self.board.cells[index + 28],
                             Tile::Brick | Tile::Stone | Tile::Guard
                         ))
             }
         };
         if blocked {
-            if action == GuardAction::Up && (1..0x80).contains(&guard.gold) {
-                guard.gold += 1;
+            if direction == Direction::Up
+                && let GuardMode::Trapped { release_in } = guard.mode
+            {
+                guard.mode = GuardMode::Trapped {
+                    release_in: NonZeroU8::new(release_in.get() + 1).expect("escape delay"),
+                };
             }
-            return Ok(());
+            return;
         }
         self.erase_guard(*guard);
-        match action {
-            GuardAction::Left | GuardAction::Right => self.nudge_guard_row(guard, journal),
-            _ => self.nudge_guard_column(guard, journal),
+        if direction.horizontal() {
+            self.center_guard_y(guard, journal);
+        } else {
+            self.center_guard_x(guard, journal);
         }
-        match action {
-            GuardAction::Left => {
-                guard.facing = 0xff;
-                guard.x = guard.x.wrapping_sub(1);
-                guard.motion = Motion::Left;
-            }
-            GuardAction::Right => {
-                guard.facing = 1;
-                guard.x += 1;
-                guard.motion = Motion::Right;
-            }
-            GuardAction::Up => {
-                guard.y = guard.y.wrapping_sub(1);
-                guard.motion = Motion::Up;
-            }
-            GuardAction::Down => {
-                guard.y += 1;
-                guard.motion = Motion::Down;
-            }
-            GuardAction::Stay => unreachable!(),
+        match direction {
+            Direction::Left => guard.facing = Facing::Left,
+            Direction::Right => guard.facing = Facing::Right,
+            _ => (),
         }
-        if guard.x == 0xff || guard.x == 5 || guard.y == 0xff || guard.y == 5 {
-            self.guard_drop_gold(guard, journal);
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            match action {
-                GuardAction::Left => {
-                    guard.col -= 1;
-                    guard.x = 4;
-                }
-                GuardAction::Right => {
-                    guard.col += 1;
-                    guard.x = 0;
-                }
-                GuardAction::Up => {
-                    guard.row -= 1;
-                    guard.y = 4;
-                }
-                GuardAction::Down => {
-                    guard.row += 1;
-                    guard.y = 0;
-                }
-                _ => unreachable!(),
-            }
+        let previous = guard.position.cell;
+        let offset = if direction.horizontal() {
+            guard.position.x()
+        } else {
+            guard.position.y()
+        };
+        let crossing = match direction {
+            Direction::Left | Direction::Up => offset == 0,
+            _ => offset == 4,
+        };
+        if crossing {
+            self.drop_guard_gold(guard, journal);
+        }
+        guard.position.step(direction);
+        guard.motion = direction.motion();
+        if crossing {
+            self.board.leave(previous);
             self.occupy_guard_cell(*guard, journal);
         } else {
             self.check_guard_gold(guard, journal);
         }
-        let rope =
-            self.background[usize::from(guard.row) * 28 + usize::from(guard.col)] == Tile::Rope;
-        let (lower, upper) = match action {
-            GuardAction::Left => {
-                if rope {
-                    (3, 5)
-                } else {
-                    (0, 2)
-                }
-            }
-            GuardAction::Right => {
-                if rope {
-                    (10, 12)
-                } else {
-                    (7, 9)
-                }
-            }
+        let rope = self.board.terrain_at(guard.position.cell) == Tile::Rope;
+        let (lower, upper) = match (direction, rope) {
+            (Direction::Left, true) => (3, 5),
+            (Direction::Left, false) => (0, 2),
+            (Direction::Right, true) => (10, 12),
+            (Direction::Right, false) => (7, 9),
             _ => (14, 15),
         };
         guard.animation = guard.animation.wrapping_add(1);
@@ -454,44 +346,49 @@ impl Game {
             guard.animation = lower;
         }
         self.draw_guard(*guard);
-        Ok(())
     }
-
-    pub fn determine_guard_move(&mut self, guard: Guard) -> GuardAction {
+    fn choose_guard_route(&mut self, guard: Guard) -> Option<Direction> {
         self.clock.events.add(TimingEvent::GuardRoute, 1);
-        let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-        if self.background[index] == Tile::Brick && (1..0x80).contains(&guard.gold) {
-            return GuardAction::Up;
+        let index =
+            usize::from(guard.position.cell.row) * 28 + usize::from(guard.position.cell.col);
+        if self.board.terrain[index] == Tile::Brick
+            && matches!(guard.mode, GuardMode::Trapped { .. })
+        {
+            return Some(Direction::Up);
         }
-        if guard.row == self.player.row && guard.col != self.player.col {
-            let direction = if guard.col < self.player.col {
+        if guard.position.cell.row == self.player.position.cell.row
+            && guard.position.cell.col != self.player.position.cell.col
+        {
+            let direction = if guard.position.cell.col < self.player.position.cell.col {
                 1_i16
             } else {
                 -1
             };
-            let mut col = i16::from(guard.col);
+            let mut col = i16::from(guard.position.cell.col);
             let mut clear = true;
-            while col != i16::from(self.player.col) {
+            while col != i16::from(self.player.position.cell.col) {
                 self.clock.events.add(TimingEvent::SameRowScan, 1);
                 col += direction;
-                let index = usize::from(guard.row) * 28 + col as usize;
-                if !matches!(self.background[index], Tile::Ladder | Tile::Rope) && guard.row != 15 {
+                let index = usize::from(guard.position.cell.row) * 28 + col as usize;
+                if !matches!(self.board.terrain[index], Tile::Ladder | Tile::Rope)
+                    && guard.position.cell.row != 15
+                {
                     self.clock.events.add(TimingEvent::SameRowSupport, 1);
                 }
-                if !matches!(self.background[index], Tile::Ladder | Tile::Rope)
-                    && guard.row != 15
-                    && matches!(self.background[index + 28], Tile::Empty | Tile::Trap)
+                if !matches!(self.board.terrain[index], Tile::Ladder | Tile::Rope)
+                    && guard.position.cell.row != 15
+                    && matches!(self.board.terrain[index + 28], Tile::Empty | Tile::Trap)
                 {
                     clear = false;
                     break;
                 }
             }
             if clear {
-                return if direction > 0 {
-                    GuardAction::Right
+                return Some(if direction > 0 {
+                    Direction::Right
                 } else {
-                    GuardAction::Left
-                };
+                    Direction::Left
+                });
             }
         }
         self.clock.events.add(TimingEvent::HorizontalSearch, 1);
@@ -499,103 +396,93 @@ impl Game {
         self.clock
             .events
             .add(TimingEvent::LimitScan, u64::from(right - left));
-        let mut best = 255;
-        let mut action = GuardAction::Stay;
+        let mut best = RouteChoice {
+            distance: u8::MAX,
+            direction: None,
+        };
         self.consider_guard_routes(
             guard,
-            guard.col,
-            GuardAction::Down,
-            GuardAction::Up,
+            guard.position.cell.col,
+            Direction::Down,
+            Direction::Up,
             &mut best,
-            &mut action,
         );
-        for col in left..guard.col {
-            self.consider_guard_routes(
-                guard,
-                col,
-                GuardAction::Left,
-                GuardAction::Left,
-                &mut best,
-                &mut action,
-            );
+        for col in left..guard.position.cell.col {
+            self.consider_guard_routes(guard, col, Direction::Left, Direction::Left, &mut best);
         }
-        for col in (guard.col + 1..=right).rev() {
-            self.consider_guard_routes(
-                guard,
-                col,
-                GuardAction::Right,
-                GuardAction::Right,
-                &mut best,
-                &mut action,
-            );
+        for col in (guard.position.cell.col + 1..=right).rev() {
+            self.consider_guard_routes(guard, col, Direction::Right, Direction::Right, &mut best);
         }
-        action
+        best.direction
     }
 
     fn consider_guard_routes(
         &mut self,
         guard: Guard,
         col: u8,
-        down: GuardAction,
-        up: GuardAction,
-        best: &mut u8,
-        action: &mut GuardAction,
+        down: Direction,
+        up: Direction,
+        best: &mut RouteChoice,
     ) {
         self.clock.events.add(TimingEvent::RouteCandidate, 1);
 
-        let index = usize::from(guard.row) * 28 + usize::from(col);
-        if guard.row < 15 && !matches!(self.background[index + 28], Tile::Brick | Tile::Stone) {
+        let index = usize::from(guard.position.cell.row) * 28 + usize::from(col);
+        if guard.position.cell.row < 15
+            && !matches!(self.board.terrain[index + 28], Tile::Brick | Tile::Stone)
+        {
             self.clock.events.add(TimingEvent::RouteDown, 1);
-            let row = self.guard_candidate_below(col, guard.row);
+            let row = self.guard_candidate_below(col, guard.position.cell.row);
             let distance = self.guard_distance(guard, col, row);
-            if distance < *best {
+            if distance < best.distance {
                 self.clock.events.add(TimingEvent::BetterRoute, 1);
-                *best = distance;
-                *action = down;
+                best.distance = distance;
+                best.direction = Some(down);
             }
         }
-        if guard.row > 0 && self.background[index] == Tile::Ladder {
+        if guard.position.cell.row > 0 && self.board.terrain[index] == Tile::Ladder {
             self.clock.events.add(TimingEvent::RouteUp, 1);
-            let row = self.guard_candidate_above(col, guard.row);
+            let row = self.guard_candidate_above(col, guard.position.cell.row);
             let distance = self.guard_distance(guard, col, row);
-            if distance < *best {
+            if distance < best.distance {
                 self.clock.events.add(TimingEvent::BetterRoute, 1);
-                *best = distance;
-                *action = up;
+                best.distance = distance;
+                best.direction = Some(up);
             }
         }
     }
 
+    // Reaching the player's row outranks routes above, then routes below. On the
+    // same row, a nearer candidate column outranks a farther one relative to the guard.
     fn guard_distance(&mut self, guard: Guard, col: u8, row: u8) -> u8 {
-        if row == self.player.row {
+        if row == self.player.position.cell.row {
             self.clock.events.add(TimingEvent::DistanceSameRow, 1);
-            col.abs_diff(guard.col)
-        } else if row > self.player.row {
+            col.abs_diff(guard.position.cell.col)
+        } else if row > self.player.position.cell.row {
             self.clock.events.add(TimingEvent::DistanceBelow, 1);
-            200 + row - self.player.row
+            200 + row - self.player.position.cell.row
         } else {
             self.clock.events.add(TimingEvent::DistanceAbove, 1);
-            100 + self.player.row - row
+            100 + self.player.position.cell.row - row
         }
     }
 
     fn guard_horizontal_limits(&self, guard: Guard) -> (u8, u8) {
         let traversable = |col: u8| {
-            let index = usize::from(guard.row) * 28 + usize::from(col);
-            if matches!(self.active[index], Tile::Brick | Tile::Stone) {
+            let index = usize::from(guard.position.cell.row) * 28 + usize::from(col);
+            if matches!(self.board.cells[index], Tile::Brick | Tile::Stone) {
                 return (false, false);
             }
             (
                 true,
-                matches!(self.active[index], Tile::Ladder | Tile::Rope)
-                    || guard.row == 15
+                matches!(self.board.cells[index], Tile::Ladder | Tile::Rope)
+                    || guard.position.cell.row == 15
                     || matches!(
-                        self.background[index + 28],
+                        self.board.terrain[index + 28],
                         Tile::Brick | Tile::Stone | Tile::Ladder
                     ),
             )
         };
-        let mut left = guard.col;
+        let mut left = guard.position.cell.col;
         while left > 0 {
             let (can_enter, can_continue) = traversable(left - 1);
             if !can_enter {
@@ -606,7 +493,7 @@ impl Game {
                 break;
             }
         }
-        let mut right = guard.col;
+        let mut right = guard.position.cell.col;
         while right < 27 {
             let (can_enter, can_continue) = traversable(right + 1);
             if !can_enter {
@@ -625,7 +512,7 @@ impl Game {
             self.clock.events.add(TimingEvent::AboveScan, 1);
 
             let old = usize::from(row) * 28 + usize::from(col);
-            if self.background[old] != Tile::Ladder {
+            if self.board.terrain[old] != Tile::Ladder {
                 return row;
             }
             row = row.wrapping_sub(1);
@@ -635,17 +522,17 @@ impl Game {
             let index = usize::from(row) * 28 + usize::from(col);
             self.clock.events.add(
                 TimingEvent::AbovePlayerProbe,
-                u64::from(row <= self.player.row),
+                u64::from(row <= self.player.position.cell.row),
             );
             self.clock
                 .events
                 .add(TimingEvent::AboveLeftProbe, u64::from(col > 0));
             if col > 0
                 && (matches!(
-                    self.background[old - 1],
+                    self.board.terrain[old - 1],
                     Tile::Brick | Tile::Stone | Tile::Ladder
-                ) || self.background[index - 1] == Tile::Rope)
-                && row <= self.player.row
+                ) || self.board.terrain[index - 1] == Tile::Rope)
+                && row <= self.player.position.cell.row
             {
                 return row;
             }
@@ -654,10 +541,10 @@ impl Game {
                 .add(TimingEvent::AboveRightProbe, u64::from(col < 27));
             if col < 27
                 && (matches!(
-                    self.background[old + 1],
+                    self.board.terrain[old + 1],
                     Tile::Brick | Tile::Stone | Tile::Ladder
-                ) || self.background[index + 1] == Tile::Rope)
-                && row <= self.player.row
+                ) || self.board.terrain[index + 1] == Tile::Rope)
+                && row <= self.player.position.cell.row
             {
                 return row;
             }
@@ -675,27 +562,29 @@ impl Game {
                 return 15;
             }
             let index = usize::from(row) * 28 + usize::from(col);
-            if matches!(self.background[index + 28], Tile::Brick | Tile::Stone) {
+            if matches!(self.board.terrain[index + 28], Tile::Brick | Tile::Stone) {
                 return row;
             }
             let mut pointer_row = row;
-            if self.background[index] != Tile::Empty {
+            if self.board.terrain[index] != Tile::Empty {
                 self.clock.events.add(TimingEvent::BelowNonEmpty, 1);
                 self.clock.events.add(
                     TimingEvent::BelowPlayerProbe,
-                    u64::from(row >= self.player.row),
+                    u64::from(row >= self.player.position.cell.row),
                 );
                 if col > 0 {
                     self.clock.events.add(TimingEvent::BelowLeftProbe, 1);
-                    if self.background[index - 1] == Tile::Rope && row >= self.player.row {
+                    if self.board.terrain[index - 1] == Tile::Rope
+                        && row >= self.player.position.cell.row
+                    {
                         return row;
                     }
-                    if self.background[index - 1] != Tile::Rope {
+                    if self.board.terrain[index - 1] != Tile::Rope {
                         pointer_row = row + 1;
                         if matches!(
-                            self.background[index + 27],
+                            self.board.terrain[index + 27],
                             Tile::Brick | Tile::Stone | Tile::Ladder
-                        ) && row >= self.player.row
+                        ) && row >= self.player.position.cell.row
                         {
                             return row;
                         }
@@ -703,18 +592,20 @@ impl Game {
                 }
                 if col < 27 {
                     self.clock.events.add(TimingEvent::BelowRightProbe, 1);
-                    // The original right check retains whichever row pointer the
-                    // left check left behind. This asymmetry affects route choice.
+                    // A left neighbor without a rope moves the right-neighbor
+                    // check down one row. Otherwise that check stays on this row.
                     let pointer = usize::from(pointer_row) * 28 + usize::from(col);
-                    if self.background[pointer + 1] == Tile::Rope && row >= self.player.row {
+                    if self.board.terrain[pointer + 1] == Tile::Rope
+                        && row >= self.player.position.cell.row
+                    {
                         return row;
                     }
-                    if self.background[pointer + 1] != Tile::Rope
+                    if self.board.terrain[pointer + 1] != Tile::Rope
                         && matches!(
-                            self.background[index + 29],
+                            self.board.terrain[index + 29],
                             Tile::Brick | Tile::Stone | Tile::Ladder
                         )
-                        && row >= self.player.row
+                        && row >= self.player.position.cell.row
                     {
                         return row;
                     }
@@ -724,102 +615,105 @@ impl Game {
         }
     }
 
-    pub fn bury_guard(&mut self, col: u8, row: u8, journal: &mut Journal) -> Result<(), String> {
-        let slot = (1..=usize::from(self.guards.count))
-            .rev()
-            .find(|&slot| self.guards.cols[slot] == col && self.guards.rows[slot] == row)
+    pub fn bury_guard(&mut self, cell: Cell, journal: &mut Journal) -> Result<(), String> {
+        let index = self
+            .guards
+            .iter()
+            .rposition(|guard| guard.position.cell == cell)
             .ok_or("guard occupancy has no matching guard")?;
-        let mut guard = self.load_guard(slot);
-        if guard.gold & 0x80 != 0 {
+        let mut guard = self.guards[index];
+        if guard.mode.carrying() {
             self.gold_count = self.gold_count.wrapping_sub(1);
         }
-        guard.gold = 0x7f;
         self.erase_guard(guard);
-        let mut respawn_row = 1;
+        let mut row = 1;
+        // Resurrection scans empty terrain by column then row. Occupancy is tested
+        // separately when the delay expires, allowing a blocked spawn to retry.
         loop {
-            if respawn_row >= 16 {
+            if row >= 16 {
                 return Err("level has no empty guard resurrection cell".into());
             }
-            if self.background[respawn_row * 28 + usize::from(self.resurrection_col)] == Tile::Empty
+            if self.board.terrain_at(Cell {
+                col: self.resurrection_col,
+                row,
+            }) == Tile::Empty
             {
                 break;
             }
             self.resurrection_col += 1;
             if self.resurrection_col == 28 {
                 self.resurrection_col = 0;
-                respawn_row += 1;
+                row += 1;
             }
         }
-        guard.col = self.resurrection_col;
-        guard.row = respawn_row as u8;
-        guard.x = 2;
-        guard.y = 2;
+        guard.position = Position::centered(Cell {
+            col: self.resurrection_col,
+            row,
+        });
         guard.animation = 0;
         guard.motion = Motion::Standing;
-        self.guards.resurrection_timers[slot] = 20;
-        self.store_guard(guard);
-        self.add_and_update_score(0x75, 0);
+        guard.mode = GuardMode::Resurrecting {
+            appear_in: NonZeroU8::new(20).expect("resurrection duration"),
+        };
+        self.guards[index] = guard;
+        self.add_score(75);
         journal.push((
-            Subject::Actor(ActorId::Guard(slot as u8)),
+            Subject::Actor(guard.id.actor()),
             Occurrence::Contact {
-                other: Subject::Cell(Cell { col, row }),
+                other: Subject::Cell(cell),
             },
         ));
         Ok(())
     }
 
-    pub fn guard_resurrections(&mut self) -> Result<(), String> {
+    pub fn update_resurrections(&mut self) -> Result<(), String> {
         self.clock.events.add(TimingEvent::ResurrectionScan, 1);
-        for slot in (1..=usize::from(self.guards.count)).rev() {
-            if self.guards.resurrection_timers[slot] == 0 {
+        for index in (0..self.guards.len()).rev() {
+            let mut guard = self.guards[index];
+            let GuardMode::Resurrecting { appear_in } = guard.mode else {
                 continue;
-            }
-            let guard = self.load_guard(slot);
-            self.guards.gold_timers[slot] = 0x7f;
+            };
             self.clock.events.add(TimingEvent::ActiveResurrection, 1);
-            self.guards.resurrection_timers[slot] -= 1;
-            match self.guards.resurrection_timers[slot] {
-                19 | 10 => {
-                    let sprite = if self.guards.resurrection_timers[slot] == 19 {
-                        0x39
-                    } else {
-                        0x3a
-                    };
-                    draw_sprite(&mut self.hires, 1, sprite, guard.col, guard.row);
-                    let (_, x, y) = self.guard_coordinates(guard);
+            let remaining = appear_in.get() - 1;
+            let cell = guard.position.cell;
+            if remaining == 0 {
+                if self.board.at(cell) != Tile::Empty {
+                    continue;
+                }
+                self.board.occupy(cell, Tile::Guard);
+                draw_sprite(&mut self.hires, 1, 0, cell.col, cell.row);
+                draw_sprite(&mut self.hires, 0, 8, cell.col, cell.row);
+                guard.mode = GuardMode::Roaming;
+                self.sound.load_sound_data(&[
+                    Note {
+                        duration: 2,
+                        pitch: 0x7c,
+                    },
+                    Note {
+                        duration: 3,
+                        pitch: 0x78,
+                    },
+                    Note {
+                        duration: 4,
+                        pitch: 0x74,
+                    },
+                    Note {
+                        duration: 5,
+                        pitch: 0x70,
+                    },
+                ])?;
+            } else {
+                guard.mode = GuardMode::Resurrecting {
+                    appear_in: NonZeroU8::new(remaining).expect("pending resurrection"),
+                };
+                if matches!(remaining, 19 | 10) {
+                    let sprite = if remaining == 19 { 0x39 } else { 0x3a };
+                    draw_sprite(&mut self.hires, 1, sprite, cell.col, cell.row);
+                    let (x, y) = guard.position.pixels();
                     draw_sprite_at_pixels(&mut self.hires, sprite, x, y);
                 }
-                0 => {
-                    let index = usize::from(guard.row) * 28 + usize::from(guard.col);
-                    if self.active[index] != Tile::Empty {
-                        self.guards.resurrection_timers[slot] = 1;
-                        continue;
-                    }
-                    self.active[index] = Tile::Guard;
-                    draw_sprite(&mut self.hires, 1, 0, guard.col, guard.row);
-                    draw_sprite(&mut self.hires, 0, 8, guard.col, guard.row);
-                    self.guards.gold_timers[slot] = 0;
-                    self.sound.load_sound_data(&[
-                        Note {
-                            duration: 2,
-                            pitch: 0x7c,
-                        },
-                        Note {
-                            duration: 3,
-                            pitch: 0x78,
-                        },
-                        Note {
-                            duration: 4,
-                            pitch: 0x74,
-                        },
-                        Note {
-                            duration: 5,
-                            pitch: 0x70,
-                        },
-                    ])?;
-                }
-                _ => (),
             }
+            self.guards[index] = guard;
         }
         Ok(())
     }

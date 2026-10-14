@@ -1,205 +1,180 @@
-use crate::IMAGE;
+use crate::actors::{Command, DigSide, Digging, Direction};
+use crate::board::Board;
 use crate::event_timing::TimingEvent;
-use crate::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
-use crate::sound::{Note, play_note};
+use crate::graphics::{
+    DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS, draw_sprite, draw_sprite_at_pixels,
+    erase_sprite_at_pixels,
+};
+use crate::sound::{DIG_NOTES, Note, play_note};
 use crate::state::Game;
-use lode_trace::{ActorId, Facing, Input, Motion, Occurrence, Subject, Tile};
+use lode_trace::{ActorId, Cell, Facing, Input, Motion, Occurrence, Phase, Subject, Tile};
 
 pub type Journal = Vec<(Subject, Occurrence)>;
 
 impl Game {
     pub fn player_should_fall(&self) -> bool {
-        let row = usize::from(self.player.row);
-        let col = usize::from(self.player.col);
-        let here = self.background[row * 28 + col];
-        if here == Tile::Ladder || (here == Tile::Rope && self.player.y_adjust == 2) {
+        let position = self.player.position;
+        let cell = position.cell;
+        let here = self.board.terrain_at(cell);
+        if here == Tile::Ladder || (here == Tile::Rope && position.y() == 2) {
             return false;
         }
-        if self.player.y_adjust < 2 {
+        if position.y() < 2 {
             return true;
         }
-        if row == 15 {
+        if cell.row == 15 {
             return false;
         }
-        let below = (row + 1) * 28 + col;
-        if self.active[below] == Tile::Empty {
-            return true;
+        let below = Cell {
+            row: cell.row + 1,
+            ..cell
+        };
+        match self.board.at(below) {
+            Tile::Empty => true,
+            Tile::Guard => false,
+            _ => !matches!(
+                self.board.terrain_at(below),
+                Tile::Brick | Tile::Stone | Tile::Ladder
+            ),
         }
-        if self.active[below] == Tile::Guard {
-            return false;
-        }
-        !matches!(
-            self.background[below],
-            Tile::Brick | Tile::Stone | Tile::Ladder
-        )
     }
 
-    // Gravity and continued digging bypass keyboard polling. A delivered key
-    // remains in the device latch until a later movement operation observes it.
-    pub fn move_player(&mut self, journal: &mut Journal) -> Result<Vec<Input>, String> {
-        self.didnt_pick_up_gold = true;
-        if self.dig_direction < 0 {
-            self.continue_digging_left(journal)?;
-            return Ok(vec![]);
-        }
-        if self.dig_direction > 0 {
-            self.continue_digging_right(journal)?;
-            return Ok(vec![]);
+    // Digging and gravity finish their update before input is eligible. A key
+    // delivered during either remains latched until supported player movement.
+    pub fn update_player(&mut self, journal: &mut Journal) -> Result<Vec<Input>, String> {
+        self.player.collected_gold = false;
+        if self.player.digging.is_some() {
+            self.advance_dig(journal)?;
+            return Ok(Vec::new());
         }
         if self.player_should_fall() {
             self.fall_player(journal)?;
-            return Ok(vec![]);
+            return Ok(Vec::new());
+        }
+        self.land_player(journal);
+        let inputs = self.observe_player_input()?;
+        if self.session.phase != Phase::Playing {
+            return Ok(inputs);
         }
 
+        // Sacrifice and level controls still finish the retained command. Pause
+        // and score screens suspend before dispatching movement or a new dig.
+        match self.player.command {
+            Command::Stop => (),
+            Command::Move(direction) => {
+                self.move_player(direction, journal)?;
+            }
+            Command::Dig(side) => {
+                self.start_dig(side, journal)?;
+            }
+        }
+        Ok(inputs)
+    }
+
+    fn land_player(&mut self, journal: &mut Journal) {
         if self.falling_sound {
-            let here =
-                self.background[usize::from(self.player.row) * 28 + usize::from(self.player.col)];
-            let low_counter = if here != Tile::Ladder
-                && !(here == Tile::Rope && self.player.y_adjust == 2)
-                && self.player.row == 15
-                && self.player.y_adjust >= 2
+            let position = self.player.position;
+            let here = self.board.terrain_at(position.cell);
+            let low = if here != Tile::Ladder
+                && !(here == Tile::Rope && position.y() == 2)
+                && position.cell.row == 15
+                && position.y() >= 2
             {
-                self.player.row
+                position.cell.row
             } else {
-                self.player.col
+                position.cell.col
             };
-            play_note(&mut self.clock, self.sound.enabled, 0x64, 8, low_counter);
+            play_note(&mut self.clock, self.sound.enabled, 0x64, 8, low);
             journal.push((Subject::Actor(ActorId::Player), Occurrence::Landed));
         }
         self.falling_sound = false;
         self.falling_pitch = 0x20;
         self.player.motion = Motion::Standing;
+    }
+
+    fn observe_player_input(&mut self) -> Result<Vec<Input>, String> {
         let code = self.keyboard.read_mmio(0xc000);
         self.keyboard.write_mmio(0xc010, code);
-        let inputs = if code & 0x80 != 0 {
-            match code {
-                0x9b => self.session.phase = lode_trace::Phase::Paused,
-                0x81 => self.alive = false,
-                0x92 => {
-                    self.session.lives = 1;
-                    self.alive = false;
-                }
-                0x9e => {
-                    self.session.lives = self.session.lives.wrapping_add(1);
-                    self.session.level = self.session.level.wrapping_add(1);
-                    self.eligible_for_score = false;
-                    self.skip_level = true;
-                    self.alive = false;
-                }
-                0x80 => {
-                    self.session.lives = self.session.lives.saturating_add(1);
-                    self.eligible_for_score = false;
-                }
-                0x93 => self.sound.enabled = !self.sound.enabled,
-                0x95 => self.sound.frame_period = self.sound.frame_period.saturating_sub(1),
-                0x88 => self.sound.frame_period = (self.sound.frame_period + 1).min(15),
-                // Keyboard-only control retains the original keyboard-mode command.
-                0x8b => (),
-                0x8d => self.session.phase = lode_trace::Phase::HighScores,
-                0x8a | 0x98 | 0x99 => {
-                    return Err("joystick controls require a controller device".into());
-                }
-                _ => {
-                    self.command = code;
-                    self.command_lr = code;
-                }
-            }
-            vec![Input {
-                observation: 0,
-                key: code,
-            }]
-        } else {
-            vec![]
-        };
-
-        if self.session.phase != lode_trace::Phase::Playing {
-            return Ok(inputs);
+        if code & 0x80 == 0 {
+            return Ok(Vec::new());
         }
-
-        let consumed = match self.command {
-            0xc9 => self.try_moving_up(journal)?,
-            0xcb => self.try_moving_down(journal)?,
-            0xd5 => self.try_digging_left(journal)?,
-            0xcf => self.try_digging_right(journal)?,
-            _ => false,
-        };
-        if !consumed {
-            match self.command_lr {
-                0xca => {
-                    self.try_moving_left(journal)?;
-                }
-                0xcc => {
-                    self.try_moving_right(journal)?;
-                }
-                _ => (),
+        match code {
+            0x9b => self.session.phase = Phase::Paused,
+            0x81 => self.player.alive = false,
+            0x92 => {
+                self.session.lives = 1;
+                self.player.alive = false;
             }
+            0x9e => {
+                self.session.lives = self.session.lives.wrapping_add(1);
+                self.session.level = self.session.level.wrapping_add(1);
+                self.eligible_for_score = false;
+                self.skip_level = true;
+                self.player.alive = false;
+            }
+            0x80 => {
+                self.session.lives = self.session.lives.saturating_add(1);
+                self.eligible_for_score = false;
+            }
+            0x93 => self.sound.enabled = !self.sound.enabled,
+            0x95 => self.sound.frame_period = self.sound.frame_period.saturating_sub(1),
+            0x88 => self.sound.frame_period = (self.sound.frame_period + 1).min(15),
+            0x8b => (),
+            0x8d => self.session.phase = Phase::HighScores,
+            0x8a | 0x98 | 0x99 => {
+                return Err("joystick controls require a controller device".into());
+            }
+            _ => self.player.command = Command::from_key(code),
         }
-        Ok(inputs)
+        Ok(vec![Input {
+            observation: 0,
+            key: code,
+        }])
     }
 
     pub fn erase_player(&mut self) {
         let (sprite, x, y) = self.player_sprite_coordinates();
         erase_sprite_at_pixels(&mut self.hires, sprite, x, y);
     }
-
     pub fn draw_player(&mut self) {
         self.clock.events.add(TimingEvent::PlayerDraw, 1);
         let (sprite, x, y) = self.player_sprite_coordinates();
         let overlap = draw_sprite_at_pixels(&mut self.hires, sprite, x, y);
-        if overlap != 0 && self.didnt_pick_up_gold {
-            self.alive = false;
+        if overlap != 0 && !self.player.collected_gold {
+            self.player.alive = false;
         }
     }
-
-    pub fn increment_player_animation(&mut self, lower: u8, upper: u8) {
+    fn animate_player(&mut self, lower: u8, upper: u8) {
         self.clock.events.add(TimingEvent::PlayerAnimation, 1);
         self.player.animation = self.player.animation.wrapping_add(1);
         if self.player.animation <= lower || self.player.animation > upper {
             self.player.animation = lower;
         }
     }
-
-    pub fn add_and_update_score(&mut self, low: u8, high: u8) {
+    pub fn add_score(&mut self, points: u32) {
         self.clock.events.add(TimingEvent::Score, 1);
-
-        self.score.add(low, high);
+        self.score.add(points);
         self.session.score = self.score.decimal();
-        let digits = [
-            self.score.0[3] & 15,
-            self.score.0[2] >> 4,
-            self.score.0[2] & 15,
-            self.score.0[1] >> 4,
-            self.score.0[1] & 15,
-            self.score.0[0] >> 4,
-            self.score.0[0] & 15,
-        ];
-        for (index, digit) in digits.into_iter().enumerate() {
+        for (index, digit) in self.score.visible_digits().into_iter().enumerate() {
             draw_sprite(&mut self.hires, 0, 0x3b + digit, 5 + index as u8, 16);
         }
     }
 
-    // Gold is collected only at both centered adjustments. The active map remains
-    // occupied by the player; background and graphics lose the gold independently.
+    // Collection is centered in both axes and suppresses overlap death for the
+    // remaining player update. The actor still occupies the foreground cell.
     pub fn check_player_gold(&mut self, journal: &mut Journal) -> Result<(), String> {
         self.clock.events.add(TimingEvent::GoldCheck, 1);
-        if self.player.x_adjust != 2 || self.player.y_adjust != 2 {
+        let position = self.player.position;
+        if !position.at_center() || self.board.terrain_at(position.cell) != Tile::Gold {
             return Ok(());
         }
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
-        if self.background[index] != Tile::Gold {
-            return Ok(());
-        }
-        self.didnt_pick_up_gold = false;
+        self.player.collected_gold = true;
         self.gold_count = self.gold_count.wrapping_sub(1);
-        self.background[index] = Tile::Empty;
-        draw_sprite(&mut self.hires, 1, 0, self.player.col, self.player.row);
-        erase_sprite_at_pixels(
-            &mut self.hires,
-            7,
-            self.player.col * 5,
-            self.player.row * 11,
-        );
-        self.add_and_update_score(0x50, 0x02);
+        self.board.terrain[Board::index(position.cell)] = Tile::Empty;
+        let Cell { col, row } = position.cell;
+        draw_sprite(&mut self.hires, 1, 0, col, row);
+        erase_sprite_at_pixels(&mut self.hires, 7, col * 5, row * 11);
+        self.add_score(250);
         self.sound.load_sound_data(&[
             Note {
                 duration: 7,
@@ -229,26 +204,20 @@ impl Game {
         journal.push((Subject::Actor(ActorId::Player), Occurrence::GoldCollected));
         Ok(())
     }
-
-    pub fn nudge_player_column(&mut self, journal: &mut Journal) -> Result<(), String> {
-        match self.player.x_adjust.cmp(&2) {
-            std::cmp::Ordering::Less => self.player.x_adjust += 1,
-            std::cmp::Ordering::Greater => self.player.x_adjust -= 1,
-            std::cmp::Ordering::Equal => return Ok(()),
+    fn center_player_x(&mut self, journal: &mut Journal) -> Result<(), String> {
+        if self.player.position.nudge_x() {
+            self.check_player_gold(journal)?;
         }
-        self.check_player_gold(journal)
+        Ok(())
+    }
+    fn center_player_y(&mut self, journal: &mut Journal) -> Result<(), String> {
+        if self.player.position.nudge_y() {
+            self.check_player_gold(journal)?;
+        }
+        Ok(())
     }
 
-    pub fn nudge_player_row(&mut self, journal: &mut Journal) -> Result<(), String> {
-        match self.player.y_adjust.cmp(&2) {
-            std::cmp::Ordering::Less => self.player.y_adjust += 1,
-            std::cmp::Ordering::Greater => self.player.y_adjust -= 1,
-            std::cmp::Ordering::Equal => return Ok(()),
-        }
-        self.check_player_gold(journal)
-    }
-
-    pub fn fall_player(&mut self, journal: &mut Journal) -> Result<(), String> {
+    fn fall_player(&mut self, journal: &mut Journal) -> Result<(), String> {
         self.clock.events.add(TimingEvent::PlayerFall, 1);
         self.falling_sound = true;
         self.erase_player();
@@ -257,348 +226,190 @@ impl Game {
         } else {
             15
         };
-        self.nudge_player_column(journal)?;
-        self.player.y_adjust += 1;
-        if self.player.y_adjust < 5 {
-            self.check_player_gold(journal)?;
+        self.center_player_x(journal)?;
+        let previous = self.player.position.cell;
+        if self.player.position.step(Direction::Down) {
+            self.board.leave(previous);
+            self.board.occupy(self.player.position.cell, Tile::Player);
         } else {
-            self.player.y_adjust = 0;
-            let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            self.player.row += 1;
-            self.active[index + 28] = Tile::Player;
+            self.check_player_gold(journal)?;
         }
         self.player.motion = Motion::Falling;
         self.draw_player();
         Ok(())
     }
 
-    pub fn try_moving_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
-        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
-
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
-        if self.player.x_adjust < 3
-            && (self.player.col == 0
-                || matches!(
-                    self.active[index - 1],
-                    Tile::Brick | Tile::Stone | Tile::Trap
-                ))
-        {
-            return Ok(false);
-        }
-        self.erase_player();
-        self.player.facing = Facing::Left;
-        self.nudge_player_row(journal)?;
-        self.player.x_adjust = self.player.x_adjust.wrapping_sub(1);
-        if self.player.x_adjust & 0x80 != 0 {
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            self.player.col -= 1;
-            self.active[index - 1] = Tile::Player;
-            self.player.x_adjust = 4;
-        } else {
-            self.check_player_gold(journal)?;
-        }
-        let rope = self.background
-            [usize::from(self.player.row) * 28 + usize::from(self.player.col)]
-            == Tile::Rope;
-        self.increment_player_animation(if rope { 3 } else { 0 }, if rope { 5 } else { 2 });
-        self.player.motion = Motion::Left;
-        self.draw_player();
-        Ok(true)
-    }
-
-    pub fn try_moving_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
-        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
-
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
-        if self.player.x_adjust >= 2
-            && (self.player.col == 27
-                || matches!(
-                    self.active[index + 1],
-                    Tile::Brick | Tile::Stone | Tile::Trap
-                ))
-        {
-            return Ok(false);
-        }
-        self.erase_player();
-        self.player.facing = Facing::Right;
-        self.nudge_player_row(journal)?;
-        self.player.x_adjust += 1;
-        if self.player.x_adjust >= 5 {
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            self.player.col += 1;
-            self.active[index + 1] = Tile::Player;
-            self.player.x_adjust = 0;
-        } else {
-            self.check_player_gold(journal)?;
-        }
-        let rope = self.background
-            [usize::from(self.player.row) * 28 + usize::from(self.player.col)]
-            == Tile::Rope;
-        self.increment_player_animation(if rope { 11 } else { 8 }, if rope { 13 } else { 10 });
-        self.player.motion = Motion::Right;
-        self.draw_player();
-        Ok(true)
-    }
-
-    pub fn try_moving_up(&mut self, journal: &mut Journal) -> Result<bool, String> {
-        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
-
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
-        if self.background[index] != Tile::Ladder {
-            if self.player.y_adjust <= 2
-                || self.player.row == 15
-                || self.background[index + 28] != Tile::Ladder
-            {
-                return Ok(false);
+    fn player_can_move(&self, direction: Direction) -> bool {
+        let position = self.player.position;
+        let cell = position.cell;
+        let index = Board::index(cell);
+        match direction {
+            Direction::Left => {
+                !(position.x() < 3
+                    && (cell.col == 0
+                        || matches!(
+                            self.board.cells[index - 1],
+                            Tile::Brick | Tile::Stone | Tile::Trap
+                        )))
             }
-        } else if self.player.y_adjust <= 2
-            && (self.player.row == 0
-                || matches!(
-                    self.active[index - 28],
-                    Tile::Brick | Tile::Stone | Tile::Trap
-                ))
-        {
-            return Ok(false);
+            Direction::Right => {
+                !(position.x() >= 2
+                    && (cell.col == 27
+                        || matches!(
+                            self.board.cells[index + 1],
+                            Tile::Brick | Tile::Stone | Tile::Trap
+                        )))
+            }
+            Direction::Down => {
+                !(position.y() >= 2
+                    && (cell.row == 15
+                        || matches!(self.board.cells[index + 28], Tile::Brick | Tile::Stone)))
+            }
+            Direction::Up => {
+                if self.board.terrain[index] != Tile::Ladder {
+                    position.y() > 2
+                        && cell.row < 15
+                        && self.board.terrain[index + 28] == Tile::Ladder
+                } else {
+                    !(position.y() <= 2
+                        && (cell.row == 0
+                            || matches!(
+                                self.board.cells[index - 28],
+                                Tile::Brick | Tile::Stone | Tile::Trap
+                            )))
+                }
+            }
         }
-        self.erase_player();
-        self.nudge_player_column(journal)?;
-        self.player.y_adjust = self.player.y_adjust.wrapping_sub(1);
-        if self.player.y_adjust & 0x80 != 0 {
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            self.player.row -= 1;
-            self.active[index - 28] = Tile::Player;
-            self.player.y_adjust = 4;
-        } else {
-            self.check_player_gold(journal)?;
-        }
-        self.increment_player_animation(16, 17);
-        self.player.motion = Motion::Up;
-        self.draw_player();
-        Ok(true)
     }
 
-    pub fn try_moving_down(&mut self, journal: &mut Journal) -> Result<bool, String> {
+    // Every direction follows erase, perpendicular centering, travel, collection
+    // and redraw. Direction-specific eligibility and animation remain explicit.
+    pub fn move_player(
+        &mut self,
+        direction: Direction,
+        journal: &mut Journal,
+    ) -> Result<bool, String> {
         self.clock.events.add(TimingEvent::PlayerAttempt, 1);
-
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
-        if self.player.y_adjust >= 2
-            && (self.player.row == 15
-                || matches!(self.active[index + 28], Tile::Brick | Tile::Stone))
-        {
+        if !self.player_can_move(direction) {
             return Ok(false);
         }
         self.erase_player();
-        self.nudge_player_column(journal)?;
-        self.player.y_adjust += 1;
-        if self.player.y_adjust >= 5 {
-            self.active[index] = if self.background[index] == Tile::Brick {
-                Tile::Empty
-            } else {
-                self.background[index]
-            };
-            self.player.row += 1;
-            self.active[index + 28] = Tile::Player;
-            self.player.y_adjust = 0;
+        match direction {
+            Direction::Left => self.player.facing = Facing::Left,
+            Direction::Right => self.player.facing = Facing::Right,
+            _ => (),
+        }
+        if direction.horizontal() {
+            self.center_player_y(journal)?;
+        } else {
+            self.center_player_x(journal)?;
+        }
+        let previous = self.player.position.cell;
+        if self.player.position.step(direction) {
+            self.board.leave(previous);
+            self.board.occupy(self.player.position.cell, Tile::Player);
         } else {
             self.check_player_gold(journal)?;
         }
-        self.increment_player_animation(16, 17);
-        self.player.motion = Motion::Down;
+        let rope = self.board.terrain_at(self.player.position.cell) == Tile::Rope;
+        let (lower, upper) = match (direction, rope) {
+            (Direction::Left, true) => (3, 5),
+            (Direction::Left, false) => (0, 2),
+            (Direction::Right, true) => (11, 13),
+            (Direction::Right, false) => (8, 10),
+            _ => (16, 17),
+        };
+        self.animate_player(lower, upper);
+        self.player.motion = direction.motion();
         self.draw_player();
         Ok(true)
     }
 
-    // Digging uses twelve visual stages followed by a thirteenth completion call.
-    // Only the active logical brick is removed; the background terrain stays brick.
-    pub fn try_digging_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
-        self.dig_direction = -1;
-        self.command = 0xff;
-        self.command_lr = 0xff;
-        self.dig_animation = 0;
-        self.continue_digging_left(journal)
+    pub fn start_dig(&mut self, side: DigSide, journal: &mut Journal) -> Result<(), String> {
+        self.player.command = Command::Stop;
+        self.player.digging = Some(Digging::new(side));
+        self.advance_dig(journal)
     }
 
-    pub fn continue_digging_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
+    // A dig draws twelve stages and completes on the next update. Both sides use
+    // the same progress state, with separate debris and player sprite sequences.
+    fn advance_dig(&mut self, journal: &mut Journal) -> Result<(), String> {
         self.clock.events.add(TimingEvent::Dig, 1);
-
-        if self.player.row == 15 || self.player.col == 0 {
-            self.dig_direction = 0;
-            return Ok(false);
+        let Some(mut dig) = self.player.digging else {
+            return Ok(());
+        };
+        let cell = self.player.position.cell;
+        let Some(adjacent) = dig.side.neighbor(cell).filter(|_| cell.row < 15) else {
+            self.player.digging = None;
+            return Ok(());
+        };
+        let hole = Cell {
+            row: cell.row + 1,
+            ..adjacent
+        };
+        if self.board.at(hole) != Tile::Brick {
+            self.player.digging = None;
+            return Ok(());
         }
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col) - 1;
-        if self.active[index + 28] != Tile::Brick {
-            self.dig_direction = 0;
-            return Ok(false);
-        }
-        if self.active[index] != Tile::Empty {
-            draw_sprite(
-                &mut self.hires,
-                0,
-                1,
-                self.player.col - 1,
-                self.player.row + 1,
-            );
-            if self.dig_animation != 0 {
+        let stage = usize::from(dig.stage());
+        let debris = match dig.side {
+            DigSide::Left => &LEFT_DIG_DEBRIS,
+            DigSide::Right => &RIGHT_DIG_DEBRIS,
+        };
+        if self.board.at(adjacent) != Tile::Empty {
+            draw_sprite(&mut self.hires, 0, 1, hole.col, hole.row);
+            if dig.stage() != 0 {
                 erase_sprite_at_pixels(
                     &mut self.hires,
-                    IMAGE[0x697a + usize::from(self.dig_animation) - 1],
-                    (self.player.col - 1) * 5,
-                    self.player.row * 11,
+                    debris[stage - 1],
+                    adjacent.col * 5,
+                    cell.row * 11,
                 );
             }
-            self.dig_direction = 0;
-            return Ok(false);
+            self.player.digging = None;
+            return Ok(());
         }
         self.erase_player();
-        self.nudge_player_column(journal)?;
-        self.nudge_player_row(journal)?;
-        self.sound.append_note(Note {
-            duration: IMAGE[0x69ab + usize::from(self.dig_animation)],
-            pitch: IMAGE[0x699e + usize::from(self.dig_animation)],
-        })?;
-        self.player.animation = if self.dig_animation < 6 { 6 } else { 0 };
+        self.center_player_x(journal)?;
+        self.center_player_y(journal)?;
+        self.sound.append_note(DIG_NOTES[stage])?;
+        self.player.animation = match (dig.side, dig.stage() < 6) {
+            (DigSide::Left, true) => 6,
+            (DigSide::Left, false) => 0,
+            (DigSide::Right, true) => 14,
+            (DigSide::Right, false) => 8,
+        };
         self.draw_player();
-        if self.dig_animation == 12 {
-            self.open_hole(self.player.col - 1);
-            return Ok(false);
+        if dig.stage() == 12 {
+            self.open_hole(hole);
+            return Ok(());
         }
-        if self.dig_animation != 0 {
+        if dig.stage() != 0 {
             erase_sprite_at_pixels(
                 &mut self.hires,
-                IMAGE[0x697a + usize::from(self.dig_animation) - 1],
-                (self.player.col - 1) * 5,
-                self.player.row * 11,
+                debris[stage - 1],
+                adjacent.col * 5,
+                cell.row * 11,
             );
         }
         draw_sprite_at_pixels(
             &mut self.hires,
-            IMAGE[0x697a + usize::from(self.dig_animation)],
-            (self.player.col - 1) * 5,
-            self.player.row * 11,
+            debris[stage],
+            adjacent.col * 5,
+            cell.row * 11,
         );
-        draw_sprite(
-            &mut self.hires,
-            0,
-            IMAGE[0x6992 + usize::from(self.dig_animation)],
-            self.player.col - 1,
-            self.player.row + 1,
-        );
-        self.dig_animation += 1;
-        Ok(true)
+        draw_sprite(&mut self.hires, 0, DIG_BRICKS[stage], hole.col, hole.row);
+        dig.advance();
+        self.player.digging = Some(dig);
+        Ok(())
     }
 
-    pub fn try_digging_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
-        self.dig_direction = 1;
-        self.command = 1;
-        self.command_lr = 1;
-        self.dig_animation = 12;
-        self.continue_digging_right(journal)
-    }
-
-    pub fn continue_digging_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
-        self.clock.events.add(TimingEvent::Dig, 1);
-
-        if self.player.row == 15 || self.player.col == 27 {
-            self.dig_direction = 0;
-            return Ok(false);
-        }
-        let index = usize::from(self.player.row) * 28 + usize::from(self.player.col) + 1;
-        if self.active[index + 28] != Tile::Brick {
-            self.dig_direction = 0;
-            return Ok(false);
-        }
-        if self.active[index] != Tile::Empty {
-            draw_sprite(
-                &mut self.hires,
-                0,
-                1,
-                self.player.col + 1,
-                self.player.row + 1,
-            );
-            if self.dig_animation != 12 {
-                erase_sprite_at_pixels(
-                    &mut self.hires,
-                    IMAGE[0x697a + usize::from(self.dig_animation) - 1],
-                    (self.player.col + 1) * 5,
-                    self.player.row * 11,
-                );
-            }
-            self.dig_direction = 0;
-            return Ok(false);
-        }
-        self.erase_player();
-        self.nudge_player_column(journal)?;
-        self.nudge_player_row(journal)?;
-        let stage = usize::from(self.dig_animation - 12);
-        self.sound.append_note(Note {
-            duration: IMAGE[0x69ab + stage],
-            pitch: IMAGE[0x699e + stage],
-        })?;
-        self.player.animation = if self.dig_animation < 18 { 14 } else { 8 };
-        self.draw_player();
-        if self.dig_animation == 24 {
-            self.open_hole(self.player.col + 1);
-            return Ok(false);
-        }
-        if self.dig_animation != 12 {
-            erase_sprite_at_pixels(
-                &mut self.hires,
-                IMAGE[0x697a + usize::from(self.dig_animation) - 1],
-                (self.player.col + 1) * 5,
-                self.player.row * 11,
-            );
-        }
-        draw_sprite_at_pixels(
-            &mut self.hires,
-            IMAGE[0x697a + usize::from(self.dig_animation)],
-            (self.player.col + 1) * 5,
-            self.player.row * 11,
-        );
-        draw_sprite(
-            &mut self.hires,
-            0,
-            IMAGE[0x6992 + stage],
-            self.player.col + 1,
-            self.player.row + 1,
-        );
-        self.dig_animation += 1;
-        Ok(true)
-    }
-
-    pub fn open_hole(&mut self, col: u8) {
-        self.dig_direction = 0;
-        let row = self.player.row + 1;
-        self.active[usize::from(row) * 28 + usize::from(col)] = Tile::Empty;
-        draw_sprite(&mut self.hires, 0, 0, col, row);
-        draw_sprite(&mut self.hires, 1, 0, col, row);
-        draw_sprite(&mut self.hires, 0, 0, col, row - 1);
-        for slot in 0..30 {
-            if self.holes.timers[slot] == 0 {
-                self.holes.cols[slot] = col;
-                self.holes.rows[slot] = row;
-                self.holes.timers[slot] = 180;
-                let index = usize::from(row) * 28 + usize::from(col);
-                self.hole_generations[index] += 1;
-                self.holes.generations[slot] = self.hole_generations[index];
-                break;
-            }
-        }
+    fn open_hole(&mut self, cell: Cell) {
+        self.player.digging = None;
+        self.board.occupy(cell, Tile::Empty);
+        draw_sprite(&mut self.hires, 0, 0, cell.col, cell.row);
+        draw_sprite(&mut self.hires, 1, 0, cell.col, cell.row);
+        draw_sprite(&mut self.hires, 0, 0, cell.col, cell.row - 1);
+        self.holes.open(cell);
     }
 }

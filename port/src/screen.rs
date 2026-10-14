@@ -33,7 +33,7 @@ impl Game {
         self.put_text(0, 0, 16, "SCORE        MEN    LEVEL   ");
         self.put_text(0, 16, 16, &format!("{:03}", self.session.lives));
         self.put_text(0, 25, 16, &format!("{:03}", self.session.level));
-        self.add_and_update_score(0, 0);
+        self.add_score(0);
     }
 
     // High scores reuse the original background page. Closing the table rebuilds
@@ -62,7 +62,7 @@ impl Game {
         self.hires.clear(1);
         for row in (0..16).rev() {
             for col in (0..28).rev() {
-                let tile = self.background[usize::from(row) * 28 + usize::from(col)];
+                let tile = self.board.terrain[usize::from(row) * 28 + usize::from(col)];
                 draw_sprite(
                     &mut self.hires,
                     1,

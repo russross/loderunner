@@ -1,3 +1,4 @@
+use lode_port::actors::Direction;
 use lode_port::score::Score;
 use lode_port::state::Game;
 use lode_trace::{Motion, Occurrence, Tile};
@@ -21,18 +22,24 @@ fn persistent_keyboard_command_crosses_cell_and_stop_keeps_position() {
     let mut game = board(5, 15, &[]);
     let mut journal = vec![];
     game.keyboard.deliver(0xcc);
-    assert_eq!(game.move_player(&mut journal).unwrap().len(), 1);
+    assert_eq!(game.update_player(&mut journal).unwrap().len(), 1);
     for _ in 0..4 {
-        assert!(game.move_player(&mut journal).unwrap().is_empty());
+        assert!(game.update_player(&mut journal).unwrap().is_empty());
     }
-    assert_eq!((game.player.col, game.player.x_adjust), (6, 2));
-    assert_eq!(game.active[15 * 28 + 5], Tile::Empty);
-    assert_eq!(game.active[15 * 28 + 6], Tile::Player);
+    assert_eq!(
+        (game.player.position.cell.col, game.player.position.x()),
+        (6, 2)
+    );
+    assert_eq!(game.board.cells[15 * 28 + 5], Tile::Empty);
+    assert_eq!(game.board.cells[15 * 28 + 6], Tile::Player);
     game.keyboard.deliver(0xa0);
-    game.move_player(&mut journal).unwrap();
+    game.update_player(&mut journal).unwrap();
     assert_eq!(game.player.motion, Motion::Standing);
-    assert_eq!((game.player.col, game.player.x_adjust), (6, 2));
-    assert!(game.alive);
+    assert_eq!(
+        (game.player.position.cell.col, game.player.position.x()),
+        (6, 2)
+    );
+    assert!(game.player.alive);
 }
 
 #[test]
@@ -41,10 +48,10 @@ fn gold_is_collected_at_center_and_only_once() {
     let mut journal = vec![];
     game.keyboard.deliver(0xcc);
     for _ in 0..4 {
-        game.move_player(&mut journal).unwrap();
+        game.update_player(&mut journal).unwrap();
     }
     assert_eq!(game.gold_count, 1);
-    game.move_player(&mut journal).unwrap();
+    game.update_player(&mut journal).unwrap();
     assert_eq!(game.gold_count, 0);
     assert_eq!(game.session.score, 250);
     assert_eq!(
@@ -54,8 +61,8 @@ fn gold_is_collected_at_center_and_only_once() {
             .count(),
         1
     );
-    assert_eq!(game.background[15 * 28 + 6], Tile::Empty);
-    assert!(game.alive);
+    assert_eq!(game.board.terrain[15 * 28 + 6], Tile::Empty);
+    assert!(game.player.alive);
 }
 
 #[test]
@@ -64,11 +71,14 @@ fn falling_defers_observation_of_latched_key_until_landing() {
     let mut journal = vec![];
     game.keyboard.deliver(0xa0);
     while game.player_should_fall() {
-        assert!(game.move_player(&mut journal).unwrap().is_empty());
+        assert!(game.update_player(&mut journal).unwrap().is_empty());
         assert_eq!(game.player.motion, Motion::Falling);
     }
-    assert_eq!((game.player.row, game.player.y_adjust), (14, 2));
-    assert_eq!(game.move_player(&mut journal).unwrap().len(), 1);
+    assert_eq!(
+        (game.player.position.cell.row, game.player.position.y()),
+        (14, 2)
+    );
+    assert_eq!(game.update_player(&mut journal).unwrap().len(), 1);
     assert_eq!(
         journal
             .iter()
@@ -94,16 +104,19 @@ fn digging_opens_after_thirteen_calls_without_moving_player() {
         let mut journal = vec![];
         game.keyboard.deliver(key);
         for _ in 0..12 {
-            game.move_player(&mut journal).unwrap();
-            assert_eq!(game.active[15 * 28 + col], Tile::Brick);
+            game.update_player(&mut journal).unwrap();
+            assert_eq!(game.board.cells[15 * 28 + col], Tile::Brick);
         }
-        game.move_player(&mut journal).unwrap();
-        assert_eq!(game.active[15 * 28 + col], Tile::Empty);
-        assert_eq!(game.background[15 * 28 + col], Tile::Brick);
-        assert_eq!((game.player.col, game.player.row), (5, 14));
-        assert_eq!(game.holes.timers[0], 180);
-        assert_eq!(game.sound.index, 13);
-        assert!(game.alive);
+        game.update_player(&mut journal).unwrap();
+        assert_eq!(game.board.cells[15 * 28 + col], Tile::Empty);
+        assert_eq!(game.board.terrain[15 * 28 + col], Tile::Brick);
+        assert_eq!(
+            (game.player.position.cell.col, game.player.position.cell.row),
+            (5, 14)
+        );
+        assert_eq!(game.holes.entries[0].unwrap().remaining.get(), 180);
+        assert_eq!(game.sound.len(), 13);
+        assert!(game.player.alive);
     }
 }
 
@@ -112,31 +125,31 @@ fn digging_cancelled_by_obstruction_keeps_brick() {
     let mut game = board(5, 14, &[(5, 15, Tile::Brick), (6, 15, Tile::Brick)]);
     let mut journal = vec![];
     game.keyboard.deliver(0xcf);
-    game.move_player(&mut journal).unwrap();
-    game.active[14 * 28 + 6] = Tile::Guard;
-    game.move_player(&mut journal).unwrap();
-    assert_eq!(game.dig_direction, 0);
-    assert_eq!(game.active[15 * 28 + 6], Tile::Brick);
-    assert!(game.holes.timers.iter().all(|timer| *timer == 0));
+    game.update_player(&mut journal).unwrap();
+    game.board.cells[14 * 28 + 6] = Tile::Guard;
+    game.update_player(&mut journal).unwrap();
+    assert!(game.player.digging.is_none());
+    assert_eq!(game.board.cells[15 * 28 + 6], Tile::Brick);
+    assert!(game.holes.entries.iter().all(Option::is_none));
 }
 
 #[test]
 fn ladder_up_and_trap_down_follow_different_obstacle_rules() {
     let mut up = board(5, 14, &[(5, 14, Tile::Ladder), (5, 13, Tile::Trap)]);
     // The fixture's player replaces the level marker; terrain underneath is explicit.
-    up.background[14 * 28 + 5] = Tile::Ladder;
-    assert!(!up.try_moving_up(&mut vec![]).unwrap());
+    up.board.terrain[14 * 28 + 5] = Tile::Ladder;
+    assert!(!up.move_player(Direction::Up, &mut vec![]).unwrap());
     let mut down = board(5, 13, &[(5, 14, Tile::Trap)]);
-    assert!(down.try_moving_down(&mut vec![]).unwrap());
-    assert_eq!(down.player.y_adjust, 3);
+    assert!(down.move_player(Direction::Down, &mut vec![]).unwrap());
+    assert_eq!(down.player.position.y(), 3);
 }
 
 #[test]
-fn packed_score_carries_across_pairs_and_wraps() {
-    let mut score = Score([0x99, 0x99, 0x99, 0x99]);
-    score.add(1, 0);
+fn decimal_score_wraps_and_renders_seven_digits() {
+    let mut score = Score::new(99_999_999);
+    score.add(1);
     assert_eq!(score, Score::default());
-    score.add(0x50, 2);
-    assert_eq!(score.0, [0x50, 2, 0, 0]);
+    score.add(250);
+    assert_eq!(score.visible_digits(), [0, 0, 0, 0, 2, 5, 0]);
     assert_eq!(score.decimal(), 250);
 }

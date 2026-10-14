@@ -8,7 +8,7 @@ fn all_original_levels_decode_and_initialize_observer_state() {
         let record = original_level(level).unwrap();
         let game = Game::load_level(&record, level, false).unwrap();
         game.snapshot().validate().unwrap();
-        assert!(game.guards.count <= 5);
+        assert!(game.guards.len() <= 5);
         assert!(game.hidden_ladders.len() <= 45);
     }
 }

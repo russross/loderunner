@@ -1,8 +1,10 @@
+use crate::actors::Command;
 use crate::event_timing::{Events, Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::sound::Note;
 use crate::state::Game;
 use crate::storage::{LevelRecord, original_level};
+use lode_trace::Facing;
 use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Trace};
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +58,7 @@ pub struct Run {
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
     timing_model: Model,
+    guard_facings: [Facing; 5],
 }
 
 impl Run {
@@ -90,6 +93,7 @@ impl Run {
             last_timing: None,
             last_model_cycles: None,
             timing_model: Model::calibrated(),
+            guard_facings: [Facing::Right; 5],
         })
     }
 
@@ -155,8 +159,7 @@ impl Run {
                         self.reload(true)?;
                     } else if self.game.session.phase != Phase::Paused || code == 0x9b {
                         if self.game.session.phase == Phase::Waiting && code >= 0xa0 {
-                            self.game.command = code;
-                            self.game.command_lr = code;
+                            self.game.player.command = Command::from_key(code);
                         }
                         self.game.session.phase = Phase::Playing;
                     }
@@ -166,34 +169,10 @@ impl Run {
                 self.game.clock.events.add(TimingEvent::Poll, 1);
             }
             Phase::Playing => {
-                inputs = self.game.move_player(&mut journal)?;
+                inputs = self.game.play_round(&mut journal)?;
                 if self.game.session.phase == Phase::HighScores {
                     self.game.show_high_scores();
                     self.high_score_until = self.game.clock.cycles + 5_000_000;
-                }
-                if self.game.alive && self.game.session.phase == Phase::Playing {
-                    self.game.play_sound_section();
-                    if self.game.gold_count == 0 {
-                        self.game.enable_exit_ladders();
-                    }
-                    if self.game.player.row == 0
-                        && self.game.player.y_adjust == 2
-                        && matches!(self.game.gold_count, 0 | 0xff)
-                    {
-                        self.game.session.phase = Phase::LevelCleared;
-                    } else {
-                        self.game.guard_resurrections()?;
-                        self.game.resurrection_col = (self.game.resurrection_col + 1) % 28;
-
-                        self.game.handle_hole_timers(&mut journal)?;
-                        if self.game.alive {
-                            self.game.play_sound_section();
-                            self.game.move_guards(&mut journal)?;
-                        }
-                    }
-                }
-                if !self.game.alive {
-                    self.game.session.phase = Phase::Died;
                 }
             }
         }
@@ -246,7 +225,7 @@ impl Run {
             self.level_index += 1;
             self.game.session.lives = self.game.session.lives.saturating_add(1);
             for counter in (1..=15_u8).rev() {
-                self.game.add_and_update_score(0, 1);
+                self.game.add_score(100);
                 for _ in 0..3 {
                     self.game.sound.append_note(Note {
                         duration: 6,
@@ -265,7 +244,7 @@ impl Run {
                     .sound
                     .load_sound_data(&[Note { duration, pitch }, Note { duration, pitch }])?;
             }
-            while self.game.sound.index != 0 {
+            while !self.game.sound.is_empty() {
                 self.game.play_sound_section();
             }
             self.game.play_sound_section();
@@ -305,8 +284,13 @@ impl Run {
         // Level loading replaces positions and animations but retains direction
         // flags, including when a new game follows the game-over screen.
         next.player.facing = self.game.player.facing;
-        next.guards.facings = self.game.guards.facings;
-        next.guards.phase = self.game.guards.phase;
+        for guard in &self.game.guards {
+            self.guard_facings[guard.id.index()] = guard.facing;
+        }
+        for guard in &mut next.guards {
+            guard.facing = self.guard_facings[guard.id.index()];
+        }
+        next.guard_schedule.retain_phase(self.game.guard_schedule);
         // Falling sound carries into the next board until supported movement
         // consumes the pending landing sound and resets its pitch counter.
         next.falling_pitch = self.game.falling_pitch;

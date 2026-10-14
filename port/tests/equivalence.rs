@@ -44,6 +44,13 @@ fn all_boards_match_original_gameplay_and_calibrated_turn_costs() {
                 old.game.snapshot(),
                 "level {level}, turn {turn}"
             );
+            for address in 0x2000..0x6000 {
+                assert_eq!(
+                    new.game.hires.read(address),
+                    old.game.hires.read(address),
+                    "level {level}, turn {turn}, hires {address:04x}"
+                );
+            }
             let previous = old.last_timing().unwrap();
             if previous.phase == Phase::Playing
                 && matches!(
@@ -137,6 +144,120 @@ fn centralized_notes_preserve_speaker_waveforms_and_counter_wraps() {
             for (actual, expected) in speaker.edges.iter().zip(&old_speaker.edges) {
                 assert_eq!((actual.cycle, actual.high), (expected.cycle, expected.high));
             }
+        }
+    }
+}
+
+fn board(tiles: &[(usize, usize, lode_trace::Tile)]) -> LevelRecord {
+    let mut bytes = [0; 256];
+    for &(col, row, tile) in tiles {
+        let index = row * 28 + col;
+        bytes[index / 2] |= (tile as u8) << ((index % 2) * 4);
+    }
+    LevelRecord(bytes)
+}
+
+// These scenarios cross lifecycle boundaries that ordinary movement does not:
+// guard burial, hidden resurrection stages, dormant facing slots and menus.
+#[test]
+fn lifecycle_and_digging_preserve_complete_frames_and_occurrences() {
+    use lode_trace::Tile;
+    let mut floor: Vec<_> = (0..28).map(|col| (col, 15, Tile::Brick)).collect();
+    floor.extend([
+        (5, 14, Tile::Player),
+        (27, 14, Tile::Guard),
+        (25, 10, Tile::Gold),
+    ]);
+    let mut burial_keys = vec![None; 250];
+    burial_keys[0] = Some(0xcf);
+    burial_keys[13] = Some(0xa0);
+    let many = board(&[
+        (0, 15, Tile::Player),
+        (5, 15, Tile::Guard),
+        (10, 15, Tile::Guard),
+        (15, 15, Tile::Guard),
+        (20, 15, Tile::Guard),
+        (25, 15, Tile::Guard),
+        (26, 14, Tile::Gold),
+    ]);
+    let few = board(&[
+        (0, 15, Tile::Player),
+        (5, 15, Tile::Guard),
+        (26, 14, Tile::Gold),
+    ]);
+    let mut reload_keys = vec![None; 60];
+    for index in [15, 31, 47] {
+        reload_keys[index] = Some(0x9e);
+    }
+    let mut scenarios = vec![
+        (vec![board(&floor)], burial_keys),
+        (vec![many.clone(), few, many], reload_keys),
+        (
+            vec![board(&[(5, 15, Tile::Player), (25, 15, Tile::Gold)])],
+            vec![
+                Some(0x9b),
+                None,
+                Some(0x9b),
+                Some(0x8d),
+                None,
+                Some(0xa0),
+                Some(0x81),
+                None,
+            ],
+        ),
+    ];
+    for side in [0xcf, 0xd5] {
+        let mut keys = vec![None; 210];
+        keys[0] = Some(side);
+        keys[13] = Some(0xa0);
+        scenarios.push((
+            vec![board(&[
+                (5, 14, Tile::Player),
+                (4, 15, Tile::Brick),
+                (5, 15, Tile::Brick),
+                (6, 15, Tile::Brick),
+            ])],
+            keys,
+        ));
+    }
+    for (levels, keys) in scenarios {
+        let config = Configuration {
+            levels,
+            start: 0,
+            high_scores: vec![],
+            wait_on_level_start: false,
+        };
+        let old_config = serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        let mut old = OriginalRun::new(old_config, false).unwrap();
+        let mut new = Run::new(config, false).unwrap();
+        for (turn, key) in keys.into_iter().enumerate() {
+            old.step(key).unwrap();
+            new.step(key).unwrap();
+            assert_eq!(
+                new.game.snapshot(),
+                old.game.snapshot(),
+                "lifecycle turn {turn}"
+            );
+            for address in 0x2000..0x6000 {
+                assert_eq!(
+                    new.game.hires.read(address),
+                    old.game.hires.read(address),
+                    "turn {turn}, hires {address:04x}"
+                );
+            }
+            for row in [0, 55, 110, 176] {
+                assert_eq!(
+                    new.game.hires.rgb_row(row),
+                    old.game.hires.rgb_row(row),
+                    "selected page row {row}"
+                );
+            }
+        }
+        let old_trace = old.trace().unwrap();
+        let mut new_trace = new.trace().unwrap();
+        for (actual, expected) in new_trace.rounds.iter_mut().zip(&old_trace.rounds) {
+            actual.start_delta = expected.start_delta;
+            assert_eq!(actual, expected);
         }
     }
 }

@@ -269,3 +269,21 @@ fn valid_but_false_state_and_timing_are_rejected_with_checkpoint() {
             .contains("timing")
     );
 }
+
+#[test]
+#[ignore = "requires MAME 0.276 and Apple IIe enhanced ROMs"]
+fn delayed_guard_enters_refilling_hole_and_resurrects() {
+    let mut tiles: Vec<_> = (0..28).map(|col| (col, 15, Tile::Brick)).collect();
+    tiles.extend([
+        (5, 14, Tile::Player),
+        (27, 14, Tile::Guard),
+        (25, 10, Tile::Gold),
+    ]);
+    let mut keys = vec![None; 250];
+    keys[0] = Some(0xcf);
+    keys[13] = Some(0xa0);
+    let trace = capture(configuration(vec![board(&tiles)], false), &keys).unwrap();
+    assert_eq!(trace.final_state.session.score, 150);
+    assert!(trace.rounds.iter().any(|round|round.changes.iter().any(|change|matches!(change,Change::Actor {after:Some(actor),..} if actor.life==lode_trace::Life::Resurrecting))));
+    validate(&trace, &Options::default()).unwrap();
+}

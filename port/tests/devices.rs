@@ -127,8 +127,8 @@ fn sound_loading_appends_and_playback_index_selects_last_note() {
             },
         ])
         .unwrap();
-    assert_eq!(sound.index, 2);
-    assert_eq!(sound.pitches[usize::from(sound.index)], 0x55);
+    assert_eq!(sound.len(), 2);
+    assert_eq!(sound.peek().unwrap().pitch, 0x55);
     assert!(
         sound
             .load_sound_data(
@@ -139,5 +139,5 @@ fn sound_loading_appends_and_playback_index_selects_last_note() {
             )
             .is_err()
     );
-    assert_eq!(sound.index, 2);
+    assert_eq!(sound.len(), 2);
 }

@@ -5,6 +5,13 @@ use crate::event_timing::{Draw, DrawKind};
 const MASK0: [u8; 7] = [0, 1, 3, 7, 15, 31, 63];
 const MASK1: [u8; 7] = [0xf8, 0xf0, 0xe0, 0xc0, 0x80, 0xfe, 0xfc];
 
+pub const GUARD_SPRITES: [u8; 16] = [
+    8, 43, 44, 48, 49, 50, 54, 40, 41, 42, 45, 46, 47, 53, 51, 52,
+];
+pub const LEFT_DIG_DEBRIS: [u8; 12] = [27, 27, 28, 28, 29, 29, 30, 30, 0, 0, 0, 0];
+pub const RIGHT_DIG_DEBRIS: [u8; 12] = [38, 38, 39, 39, 29, 29, 30, 30, 0, 0, 0, 0];
+pub const DIG_BRICKS: [u8; 12] = [31, 31, 32, 32, 33, 33, 34, 34, 35, 35, 36, 36];
+
 pub fn row_address(page: usize, row: u8) -> u16 {
     let low = u16::from(IMAGE[0x1a85 + usize::from(row)]);
     let high = u16::from(IMAGE[0x1b45 + usize::from(row)]) | if page == 0 { 0x20 } else { 0x40 };

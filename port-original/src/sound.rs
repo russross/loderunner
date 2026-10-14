@@ -1,4 +1,5 @@
 use crate::devices::speaker::Speaker;
+use crate::event_timing::TimingEvent;
 use crate::timing::Clock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +61,8 @@ pub fn play_note(
     duration: u8,
     low_counter: u8,
 ) {
+    let start = clock.cycles;
+    clock.events.add(TimingEvent::Note, 1);
     let count = |byte: u8| if byte == 0 { 256_u32 } else { u32::from(byte) };
     let mut remaining = (count(duration) - 1) * 256 + count(low_counter);
     let mut until_wrap = count(low_counter);
@@ -80,6 +83,9 @@ pub fn play_note(
             pitch_counter -= steps;
             if remaining == 0 {
                 clock.advance(u64::from(steps - 1) * 10 + 18);
+                clock
+                    .events
+                    .add(TimingEvent::SoundCycles, clock.cycles - start);
                 return;
             }
             clock.advance(u64::from(steps) * 10);

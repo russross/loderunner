@@ -1,3 +1,4 @@
+use crate::event_timing::TimingEvent;
 use crate::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
 use crate::player::Journal;
 use crate::sound::play_note;
@@ -8,6 +9,9 @@ use lode_trace::{FORMAT_VERSION, Header, Observer, Phase, Subject, Tile, Trace};
 impl Game {
     pub fn play_sound_section(&mut self) {
         self.clock.advance(self.hires.take_cycles());
+        let sound_start = self.clock.cycles;
+        self.clock.events.add(TimingEvent::SoundSection, 1);
+        let note_start = self.clock.events.count(TimingEvent::SoundCycles);
         let index = usize::from(self.sound.index);
         if index != 0 {
             let duration = self.sound.durations[index];
@@ -45,16 +49,23 @@ impl Game {
             self.clock
                 .advance(29 + sound_delay(self.sound.frame_period));
         }
+        let notes = self.clock.events.count(TimingEvent::SoundCycles) - note_start;
+        self.clock.events.add(
+            TimingEvent::SoundCycles,
+            self.clock.cycles - sound_start - notes,
+        );
         self.clock.checkpoint();
     }
 
     // A background brick survives a hole. Refill changes active occupancy and both
     // graphics pages, while the logical background retains its original terrain.
     pub fn handle_hole_timers(&mut self, journal: &mut Journal) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::HoleScan, 1);
         for slot in (0..31).rev() {
             if self.holes.timers[slot] == 0 {
                 continue;
             }
+            self.clock.events.add(TimingEvent::ActiveHole, 1);
             self.clock.advance(50);
             let col = self.holes.cols[slot];
             let row = self.holes.rows[slot];
@@ -102,6 +113,7 @@ impl Game {
     }
 
     pub fn enable_exit_ladders(&mut self) {
+        self.clock.events.add(TimingEvent::Exit, 1);
         self.session.exit_available = true;
         let mut blocked = false;
         for slot in (0..self.hidden_ladders.len()).rev() {

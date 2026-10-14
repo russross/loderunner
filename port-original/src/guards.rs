@@ -1,4 +1,5 @@
 use crate::IMAGE;
+use crate::event_timing::TimingEvent;
 use crate::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
 use crate::player::Journal;
 use crate::sound::Note;
@@ -101,6 +102,7 @@ impl Game {
     // Positive gold counters also encode the trapped animation and escape delay.
     // Negative counters encode carrying gold; zero is an ordinary active guard.
     pub fn move_guard(&mut self, slot: usize, journal: &mut Journal) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::GuardUpdate, 1);
         self.clock.advance(200);
         let mut guard = self.load_guard(slot);
         guard.motion = Motion::Standing;
@@ -240,6 +242,7 @@ impl Game {
     }
 
     fn fall_guard(&mut self, guard: &mut Guard, journal: &mut Journal) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::GuardFall, 1);
         self.erase_guard(*guard);
         self.nudge_guard_column(guard, journal);
         guard.animation = if guard.facing & 0x80 != 0 { 6 } else { 13 };
@@ -328,6 +331,7 @@ impl Game {
         action: GuardAction,
         journal: &mut Journal,
     ) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::GuardAttempt, 1);
         self.clock.advance(180);
         let index = usize::from(guard.row) * 28 + usize::from(guard.col);
         let blocked = match action {
@@ -457,6 +461,7 @@ impl Game {
     }
 
     pub fn determine_guard_move(&mut self, guard: Guard) -> GuardAction {
+        self.clock.events.add(TimingEvent::GuardRoute, 1);
         let index = usize::from(guard.row) * 28 + usize::from(guard.col);
         if self.background[index] == Tile::Brick && (1..0x80).contains(&guard.gold) {
             return GuardAction::Up;
@@ -470,8 +475,12 @@ impl Game {
             let mut col = i16::from(guard.col);
             let mut clear = true;
             while col != i16::from(self.player.col) {
+                self.clock.events.add(TimingEvent::SameRowScan, 1);
                 col += direction;
                 let index = usize::from(guard.row) * 28 + col as usize;
+                if !matches!(self.background[index], Tile::Ladder | Tile::Rope) && guard.row != 15 {
+                    self.clock.events.add(TimingEvent::SameRowSupport, 1);
+                }
                 if !matches!(self.background[index], Tile::Ladder | Tile::Rope)
                     && guard.row != 15
                     && matches!(self.background[index + 28], Tile::Empty | Tile::Trap)
@@ -488,7 +497,11 @@ impl Game {
                 };
             }
         }
+        self.clock.events.add(TimingEvent::HorizontalSearch, 1);
         let (left, right) = self.guard_horizontal_limits(guard);
+        self.clock
+            .events
+            .add(TimingEvent::LimitScan, u64::from(right - left));
         self.clock
             .advance(75 * u64::from(guard.col - left + right - guard.col));
         let mut best = 255;
@@ -533,32 +546,40 @@ impl Game {
         best: &mut u8,
         action: &mut GuardAction,
     ) {
+        self.clock.events.add(TimingEvent::RouteCandidate, 1);
         self.clock.advance(100);
         let index = usize::from(guard.row) * 28 + usize::from(col);
         if guard.row < 15 && !matches!(self.background[index + 28], Tile::Brick | Tile::Stone) {
+            self.clock.events.add(TimingEvent::RouteDown, 1);
             let row = self.guard_candidate_below(col, guard.row);
             let distance = self.guard_distance(guard, col, row);
             if distance < *best {
+                self.clock.events.add(TimingEvent::BetterRoute, 1);
                 *best = distance;
                 *action = down;
             }
         }
         if guard.row > 0 && self.background[index] == Tile::Ladder {
+            self.clock.events.add(TimingEvent::RouteUp, 1);
             let row = self.guard_candidate_above(col, guard.row);
             let distance = self.guard_distance(guard, col, row);
             if distance < *best {
+                self.clock.events.add(TimingEvent::BetterRoute, 1);
                 *best = distance;
                 *action = up;
             }
         }
     }
 
-    fn guard_distance(&self, guard: Guard, col: u8, row: u8) -> u8 {
+    fn guard_distance(&mut self, guard: Guard, col: u8, row: u8) -> u8 {
         if row == self.player.row {
+            self.clock.events.add(TimingEvent::DistanceSameRow, 1);
             col.abs_diff(guard.col)
         } else if row > self.player.row {
+            self.clock.events.add(TimingEvent::DistanceBelow, 1);
             200 + row - self.player.row
         } else {
+            self.clock.events.add(TimingEvent::DistanceAbove, 1);
             100 + self.player.row - row
         }
     }
@@ -606,6 +627,7 @@ impl Game {
 
     fn guard_candidate_above(&mut self, col: u8, mut row: u8) -> u8 {
         loop {
+            self.clock.events.add(TimingEvent::AboveScan, 1);
             self.clock.advance(100);
             let old = usize::from(row) * 28 + usize::from(col);
             if self.background[old] != Tile::Ladder {
@@ -616,6 +638,13 @@ impl Game {
                 return 0xff;
             }
             let index = usize::from(row) * 28 + usize::from(col);
+            self.clock.events.add(
+                TimingEvent::AbovePlayerProbe,
+                u64::from(row <= self.player.row),
+            );
+            self.clock
+                .events
+                .add(TimingEvent::AboveLeftProbe, u64::from(col > 0));
             if col > 0
                 && (matches!(
                     self.background[old - 1],
@@ -625,6 +654,9 @@ impl Game {
             {
                 return row;
             }
+            self.clock
+                .events
+                .add(TimingEvent::AboveRightProbe, u64::from(col < 27));
             if col < 27
                 && (matches!(
                     self.background[old + 1],
@@ -642,6 +674,7 @@ impl Game {
 
     fn guard_candidate_below(&mut self, col: u8, mut row: u8) -> u8 {
         loop {
+            self.clock.events.add(TimingEvent::BelowScan, 1);
             self.clock.advance(100);
             if row == 15 {
                 return 15;
@@ -652,7 +685,13 @@ impl Game {
             }
             let mut pointer_row = row;
             if self.background[index] != Tile::Empty {
+                self.clock.events.add(TimingEvent::BelowNonEmpty, 1);
+                self.clock.events.add(
+                    TimingEvent::BelowPlayerProbe,
+                    u64::from(row >= self.player.row),
+                );
                 if col > 0 {
+                    self.clock.events.add(TimingEvent::BelowLeftProbe, 1);
                     if self.background[index - 1] == Tile::Rope && row >= self.player.row {
                         return row;
                     }
@@ -668,6 +707,7 @@ impl Game {
                     }
                 }
                 if col < 27 {
+                    self.clock.events.add(TimingEvent::BelowRightProbe, 1);
                     // The original right check retains whichever row pointer the
                     // left check left behind. This asymmetry affects route choice.
                     let pointer = usize::from(pointer_row) * 28 + usize::from(col);
@@ -734,12 +774,14 @@ impl Game {
     }
 
     pub fn guard_resurrections(&mut self) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::ResurrectionScan, 1);
         for slot in (1..=usize::from(self.guards.count)).rev() {
             if self.guards.resurrection_timers[slot] == 0 {
                 continue;
             }
             let guard = self.load_guard(slot);
             self.guards.gold_timers[slot] = 0x7f;
+            self.clock.events.add(TimingEvent::ActiveResurrection, 1);
             self.guards.resurrection_timers[slot] -= 1;
             match self.guards.resurrection_timers[slot] {
                 19 | 10 => {

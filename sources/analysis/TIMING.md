@@ -3,6 +3,8 @@ Local timing derivations
 
 The formulas here use NMOS 6502 timings and the vendored assembled image. They include callee RTS and exclude caller JSR. They are independent of host execution speed. The initial port does not interpret these instructions at runtime.
 
+These formulas and budgets remain the default clock. A separately calibrated [event model](EVENT_TIMING.md) uses complete-turn event counts, original-machine measurements, and independent trace comparisons alongside them.
+
 SOUND_DELAY1 at $86B5
 ---------------------
 

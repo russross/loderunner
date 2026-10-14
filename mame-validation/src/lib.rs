@@ -47,6 +47,7 @@ pub struct Options {
     pub gameplay: Tolerance,
     pub transitions: Tolerance,
     pub fixed_initialization: bool,
+    pub profile_timing: bool,
 }
 
 impl Default for Options {
@@ -65,6 +66,7 @@ impl Default for Options {
                 percent: 0,
             },
             fixed_initialization: true,
+            profile_timing: false,
         }
     }
 }
@@ -208,6 +210,7 @@ struct AdapterConfiguration<'a> {
     start: usize,
     wait_on_level_start: bool,
     fixed_initialization: bool,
+    profile_timing: bool,
     symbols: BTreeMap<String, u16>,
     anchors: Anchors,
 }
@@ -261,6 +264,7 @@ impl Machine {
             start: configuration.start,
             wait_on_level_start: configuration.wait_on_level_start,
             fixed_initialization: options.fixed_initialization,
+            profile_timing: options.profile_timing,
             symbols: serde_json::from_str(include_str!(
                 "../../sources/analysis/apple2-symbols.json"
             ))

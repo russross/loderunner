@@ -1,3 +1,4 @@
+use crate::event_timing::{Events, Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::sound::Note;
 use crate::state::Game;
@@ -51,6 +52,10 @@ pub struct Run {
     tracing: bool,
     initials: Option<(usize, usize)>,
     high_score_until: u64,
+    timing_intervals: Vec<TimingInterval>,
+    last_timing: Option<TimingInterval>,
+    last_model_cycles: Option<u64>,
+    timing_model: Model,
 }
 
 impl Run {
@@ -81,6 +86,10 @@ impl Run {
             tracing: true,
             initials: None,
             high_score_until: 0,
+            timing_intervals: Vec::new(),
+            last_timing: None,
+            last_model_cycles: None,
+            timing_model: Model::calibrated(),
         })
     }
 
@@ -96,6 +105,10 @@ impl Run {
         checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
     ) -> Result<(), String> {
         self.last_start = self.game.clock.cycles;
+        let phase = self.game.session.phase;
+        self.game.clock.events = Events::default();
+        self.game.hires.events = Events::default();
+        self.game.clock.events.add(TimingEvent::Round, 1);
         let mut journal = Journal::new();
         let mut inputs = Vec::new();
         match self.game.session.phase {
@@ -192,7 +205,33 @@ impl Run {
         self.game.clock.advance(self.game.hires.take_cycles());
         self.game.clock.checkpoint();
         checkpoint(&mut self.game)?;
+        match self.game.session.phase {
+            Phase::Died if phase == Phase::Playing => {
+                self.game.clock.events.add(TimingEvent::Death, 1)
+            }
+            Phase::LevelCleared if phase == Phase::Playing => {
+                self.game.clock.events.add(TimingEvent::Completion, 1)
+            }
+            _ => (),
+        }
+        self.game
+            .clock
+            .events
+            .add(TimingEvent::Input, inputs.len() as u64);
+        self.game
+            .clock
+            .events
+            .merge(std::mem::take(&mut self.game.hires.events));
+        let interval = TimingInterval {
+            phase,
+            end_phase: self.game.session.phase,
+            legacy: self.game.clock.cycles - self.last_start,
+            events: std::mem::take(&mut self.game.clock.events),
+        };
+        self.last_model_cycles = Some(self.timing_model.estimate(&interval));
+        self.last_timing = Some(interval.clone());
         if self.tracing {
+            self.timing_intervals.push(interval);
             self.rounds.push(
                 self.observer
                     .finish_round(self.last_start, self.game.snapshot(), inputs, journal)
@@ -356,6 +395,32 @@ impl Run {
         Ok(trace)
     }
 
+    pub fn last_timing(&self) -> Option<&TimingInterval> {
+        self.last_timing.as_ref()
+    }
+
+    pub fn last_model_cycles(&self) -> Option<u64> {
+        self.last_model_cycles
+    }
+
+    pub fn timing_intervals(&self) -> &[TimingInterval] {
+        &self.timing_intervals
+    }
+
+    // Alternative traces reuse independently observed gameplay and change only
+    // interval durations. The live clock and speaker retain their local timing.
+    pub fn trace_with_model(&self, model: &Model) -> Result<Trace, String> {
+        let mut trace = self.trace()?;
+        let mut previous = 0;
+        for (round, interval) in trace.rounds.iter_mut().zip(&self.timing_intervals) {
+            round.start_delta = previous;
+            previous = model.estimate(interval);
+        }
+        trace.final_delta = previous;
+        trace.validate().map_err(|error| error.to_string())?;
+        Ok(trace)
+    }
+
     pub fn disable_tracing(&mut self) -> Result<(), String> {
         if !self.rounds.is_empty() {
             return Err("trace capture must be disabled before execution".into());
@@ -374,6 +439,14 @@ pub fn capture(configuration: Configuration, deliveries: &[Option<u8>]) -> Resul
 }
 
 pub fn replay(expected: &Trace) -> Result<Trace, String> {
+    replay_using(expected, None)
+}
+
+pub fn replay_with_model(expected: &Trace, model: &Model) -> Result<Trace, String> {
+    replay_using(expected, Some(model))
+}
+
+fn replay_using(expected: &Trace, model: Option<&Model>) -> Result<Trace, String> {
     expected.validate().map_err(|error| error.to_string())?;
     let configuration: Configuration =
         serde_json::from_str(&expected.header.configuration).map_err(|error| error.to_string())?;
@@ -394,15 +467,26 @@ pub fn replay(expected: &Trace) -> Result<Trace, String> {
             ));
         }
         run.step(round.inputs.first().map(|input| input.key))?;
-        let actual = run.rounds.last().ok_or("replay produced no round")?;
-        if actual != round {
+        let mut actual = run.rounds.last().ok_or("replay produced no round")?.clone();
+        if let Some(model) = model {
+            actual.start_delta = run
+                .timing_intervals
+                .iter()
+                .rev()
+                .nth(1)
+                .map_or(0, |interval| model.estimate(interval));
+        }
+        if &actual != round {
             return Err(format!(
                 "round {}: replay mismatch\nexpected: {round:?}\nactual: {actual:?}",
                 round.number
             ));
         }
     }
-    let actual = run.trace()?;
+    let actual = match model {
+        Some(model) => run.trace_with_model(model)?,
+        None => run.trace()?,
+    };
     if actual.final_state != expected.final_state || actual.final_delta != expected.final_delta {
         return Err("replay terminal state or duration differs".into());
     }

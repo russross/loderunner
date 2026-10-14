@@ -1,9 +1,11 @@
+use crate::event_timing::Events;
 use std::time::{Duration, Instant};
 
 pub const NTSC_CPU_HZ: u64 = 1_023_000;
 
 pub struct Clock {
     pub cycles: u64,
+    pub events: Events,
     epoch: Instant,
     paced: bool,
 }
@@ -12,6 +14,7 @@ impl Clock {
     pub fn new(paced: bool) -> Self {
         Self {
             cycles: 0,
+            events: Events::default(),
             epoch: Instant::now(),
             paced,
         }

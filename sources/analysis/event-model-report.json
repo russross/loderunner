@@ -1,0 +1,547 @@
+{
+  "refinement": [
+    {
+      "factor": "below_left_probe",
+      "action": "add",
+      "validation_rmse": 282.8320320142917,
+      "ridge": 0.0001
+    },
+    {
+      "factor": "below_right_probe",
+      "action": "add",
+      "validation_rmse": 264.0402707606045,
+      "ridge": 1e-06
+    },
+    {
+      "factor": "guard_update",
+      "action": "remove",
+      "validation_rmse": 257.72652657419644,
+      "ridge": 1e-06
+    },
+    {
+      "factor": "distance_above",
+      "action": "remove",
+      "validation_rmse": 252.98784967530224,
+      "ridge": 0.0001
+    },
+    {
+      "factor": "sprite_erase",
+      "action": "remove",
+      "validation_rmse": 250.83836096843984,
+      "ridge": 0.0001
+    },
+    {
+      "stopped_at_rmse": 250.83836096843984,
+      "best_trial_rmse": 250.21467865947966,
+      "best_trial_factor": "input"
+    }
+  ],
+  "measurement_sha256": "e0e3055c26cf1538f15b6b498642e1d07cf96c9719c0eb4beb0964207e667f2c",
+  "coefficients": {
+    "graphics_cycles": 1.0,
+    "sound_cycles": 1.0,
+    "round": -152.7015126971353,
+    "hole_scan": 1141.1538250408305,
+    "death": 304.7830503968463,
+    "completion": -104.30059660802516,
+    "player_attempt": -106.83504796866323,
+    "dig": -943.3932578529168,
+    "score": -837.7425000278416,
+    "active_hole": 120.74101317577028,
+    "input": 81.64735759886656,
+    "same_row_scan": 69.3634412156239,
+    "limit_scan": -264.8235790167797,
+    "route_candidate": 437.9930535318357,
+    "above_scan": 23.500124121181557,
+    "below_scan": 76.26334518839256,
+    "distance_same_row": -41.43031276986819,
+    "distance_below": 24.488937866449756,
+    "better_route": 40.317208110424744,
+    "below_player_probe": 35.84422624211952,
+    "above_player_probe": 152.29147666409744,
+    "tile_draw": 209.1568103949967,
+    "actor_draw": 681.8557289698247,
+    "below_left_probe": 59.105600891181744,
+    "below_right_probe": 25.46645270894865
+  },
+  "scenarios": {
+    "train": [
+      "burial",
+      "completion",
+      "dig",
+      "fall",
+      "floor-16-0",
+      "floor-16-1",
+      "floor-16-3",
+      "floor-16-5",
+      "floor-2-0",
+      "floor-2-1",
+      "floor-2-3",
+      "floor-2-5",
+      "floor-24-0",
+      "floor-24-1",
+      "floor-24-3",
+      "floor-24-5",
+      "floor-8-0",
+      "floor-8-1",
+      "floor-8-3",
+      "floor-8-5",
+      "gold",
+      "ladder",
+      "level-1",
+      "level-100",
+      "level-15",
+      "level-25",
+      "level-3",
+      "level-75",
+      "sacrifice"
+    ],
+    "validation": [
+      "level-10",
+      "level-150",
+      "level-2",
+      "level-50"
+    ],
+    "test": [
+      "level-125",
+      "level-40",
+      "level-5"
+    ]
+  },
+  "selection": [
+    {
+      "factors": [
+        "round",
+        "hole_scan",
+        "death",
+        "completion",
+        "player_attempt",
+        "guard_update",
+        "dig",
+        "score",
+        "active_hole",
+        "input"
+      ],
+      "ridge": 1e-06,
+      "validation": {
+        "rounds": 480,
+        "mae": 2450.5520833333335,
+        "rmse": 3480.5072011250504,
+        "bias": -817.9770833333333,
+        "max_absolute": 14156,
+        "max_percent": 24.03345363386856,
+        "total_percent": -1.7012734256627022
+      },
+      "trials": [
+        {
+          "added": [
+            "distance_same_row",
+            "distance_above",
+            "distance_below",
+            "better_route",
+            "below_player_probe",
+            "above_player_probe"
+          ],
+          "rmse": 1605.4316670291514
+        },
+        {
+          "added": [
+            "below_non_empty",
+            "below_left_probe",
+            "below_right_probe",
+            "above_left_probe",
+            "above_right_probe",
+            "route_down",
+            "route_up",
+            "horizontal_search",
+            "same_row_support"
+          ],
+          "rmse": 1238.2721732317173
+        },
+        {
+          "added": [
+            "same_row_scan",
+            "limit_scan",
+            "route_candidate",
+            "above_scan",
+            "below_scan"
+          ],
+          "rmse": 511.48877268551394
+        },
+        {
+          "added": [
+            "player_fall",
+            "guard_fall",
+            "guard_route",
+            "guard_attempt"
+          ],
+          "rmse": 3175.1338820197802
+        },
+        {
+          "added": [
+            "tile_draw",
+            "actor_draw",
+            "sprite_erase"
+          ],
+          "rmse": 3433.603696980283
+        },
+        {
+          "added": [
+            "player_animation",
+            "player_draw",
+            "gold_check"
+          ],
+          "rmse": 3472.6734030978687
+        },
+        {
+          "added": [
+            "sound_section",
+            "note"
+          ],
+          "rmse": 3497.592132155587
+        },
+        {
+          "added": [
+            "exit",
+            "active_resurrection"
+          ],
+          "rmse": 3475.7376072688994
+        }
+      ]
+    },
+    {
+      "factors": [
+        "round",
+        "hole_scan",
+        "death",
+        "completion",
+        "player_attempt",
+        "guard_update",
+        "dig",
+        "score",
+        "active_hole",
+        "input",
+        "same_row_scan",
+        "limit_scan",
+        "route_candidate",
+        "above_scan",
+        "below_scan"
+      ],
+      "ridge": 1e-06,
+      "validation": {
+        "rounds": 480,
+        "mae": 394.78125,
+        "rmse": 511.48877268551394,
+        "bias": -274.13125,
+        "max_absolute": 1560,
+        "max_percent": 2.597379024939195,
+        "total_percent": -0.5701531500958293
+      },
+      "trials": [
+        {
+          "added": [
+            "distance_same_row",
+            "distance_above",
+            "distance_below",
+            "better_route",
+            "below_player_probe",
+            "above_player_probe"
+          ],
+          "rmse": 379.79346909427846
+        },
+        {
+          "added": [
+            "below_non_empty",
+            "below_left_probe",
+            "below_right_probe",
+            "above_left_probe",
+            "above_right_probe",
+            "route_down",
+            "route_up",
+            "horizontal_search",
+            "same_row_support"
+          ],
+          "rmse": 492.4360703008395
+        },
+        {
+          "added": [
+            "player_fall",
+            "guard_fall",
+            "guard_route",
+            "guard_attempt"
+          ],
+          "rmse": 507.3918234461411
+        },
+        {
+          "added": [
+            "tile_draw",
+            "actor_draw",
+            "sprite_erase"
+          ],
+          "rmse": 489.6497196125682
+        },
+        {
+          "added": [
+            "player_animation",
+            "player_draw",
+            "gold_check"
+          ],
+          "rmse": 511.4799930919423
+        },
+        {
+          "added": [
+            "sound_section",
+            "note"
+          ],
+          "rmse": 500.5179442337707
+        },
+        {
+          "added": [
+            "exit",
+            "active_resurrection"
+          ],
+          "rmse": 509.6074939761646
+        }
+      ]
+    },
+    {
+      "factors": [
+        "round",
+        "hole_scan",
+        "death",
+        "completion",
+        "player_attempt",
+        "guard_update",
+        "dig",
+        "score",
+        "active_hole",
+        "input",
+        "same_row_scan",
+        "limit_scan",
+        "route_candidate",
+        "above_scan",
+        "below_scan",
+        "distance_same_row",
+        "distance_above",
+        "distance_below",
+        "better_route",
+        "below_player_probe",
+        "above_player_probe"
+      ],
+      "ridge": 0.0001,
+      "validation": {
+        "rounds": 480,
+        "mae": 270.46666666666664,
+        "rmse": 379.79346909427846,
+        "bias": -14.945833333333333,
+        "max_absolute": 2073,
+        "max_percent": 2.790077928370503,
+        "total_percent": -0.03108516068783566
+      },
+      "trials": [
+        {
+          "added": [
+            "below_non_empty",
+            "below_left_probe",
+            "below_right_probe",
+            "above_left_probe",
+            "above_right_probe",
+            "route_down",
+            "route_up",
+            "horizontal_search",
+            "same_row_support"
+          ],
+          "rmse": 468.98151393916015
+        },
+        {
+          "added": [
+            "player_fall",
+            "guard_fall",
+            "guard_route",
+            "guard_attempt"
+          ],
+          "rmse": 362.837521029271
+        },
+        {
+          "added": [
+            "tile_draw",
+            "actor_draw",
+            "sprite_erase"
+          ],
+          "rmse": 306.81313531203324
+        },
+        {
+          "added": [
+            "player_animation",
+            "player_draw",
+            "gold_check"
+          ],
+          "rmse": 319.28310974222654
+        },
+        {
+          "added": [
+            "sound_section",
+            "note"
+          ],
+          "rmse": 357.7671990974019
+        },
+        {
+          "added": [
+            "exit",
+            "active_resurrection"
+          ],
+          "rmse": 378.7413695386338
+        }
+      ]
+    },
+    {
+      "factors": [
+        "round",
+        "hole_scan",
+        "death",
+        "completion",
+        "player_attempt",
+        "guard_update",
+        "dig",
+        "score",
+        "active_hole",
+        "input",
+        "same_row_scan",
+        "limit_scan",
+        "route_candidate",
+        "above_scan",
+        "below_scan",
+        "distance_same_row",
+        "distance_above",
+        "distance_below",
+        "better_route",
+        "below_player_probe",
+        "above_player_probe",
+        "tile_draw",
+        "actor_draw",
+        "sprite_erase"
+      ],
+      "ridge": 0.0001,
+      "validation": {
+        "rounds": 480,
+        "mae": 222.6625,
+        "rmse": 306.81313531203324,
+        "bias": -9.379166666666666,
+        "max_absolute": 1854,
+        "max_percent": 2.495322951856687,
+        "total_percent": -0.019507303236219145
+      },
+      "trials": [
+        {
+          "added": [
+            "below_non_empty",
+            "below_left_probe",
+            "below_right_probe",
+            "above_left_probe",
+            "above_right_probe",
+            "route_down",
+            "route_up",
+            "horizontal_search",
+            "same_row_support"
+          ],
+          "rmse": 381.36797901327094
+        },
+        {
+          "added": [
+            "player_fall",
+            "guard_fall",
+            "guard_route",
+            "guard_attempt"
+          ],
+          "rmse": 324.9156557221171
+        },
+        {
+          "added": [
+            "player_animation",
+            "player_draw",
+            "gold_check"
+          ],
+          "rmse": 316.129766340765
+        },
+        {
+          "added": [
+            "sound_section",
+            "note"
+          ],
+          "rmse": 315.0496951540608
+        },
+        {
+          "added": [
+            "exit",
+            "active_resurrection"
+          ],
+          "rmse": 306.77525025116785
+        }
+      ]
+    }
+  ],
+  "stopping_rule": "no remaining group or individual factor addition/removal reduces whole-level validation RMSE by 0.5%",
+  "counts_verified": 2894,
+  "metrics": {
+    "train": {
+      "legacy": {
+        "rounds": 2054,
+        "mae": 1072.0038948393378,
+        "rmse": 1407.7409344270482,
+        "bias": -1064.8743914313534,
+        "max_absolute": 3981,
+        "max_percent": 27.27272727272727,
+        "total_percent": -2.799568068864256
+      },
+      "model": {
+        "rounds": 2054,
+        "mae": 123.60077896786757,
+        "rmse": 169.2088066655059,
+        "bias": -0.08958130477117819,
+        "max_absolute": 1115,
+        "max_percent": 14.909090909090908,
+        "total_percent": -0.00023551036856796705
+      }
+    },
+    "validation": {
+      "legacy": {
+        "rounds": 480,
+        "mae": 1707.0833333333333,
+        "rmse": 1840.340538007391,
+        "bias": -1707.0833333333333,
+        "max_absolute": 4086,
+        "max_percent": 6.281775684989935,
+        "total_percent": -3.550485178089286
+      },
+      "model": {
+        "rounds": 480,
+        "mae": 176.175,
+        "rmse": 250.83836096843984,
+        "bias": 10.591666666666667,
+        "max_absolute": 1607,
+        "max_percent": 2.1628824075694153,
+        "total_percent": 0.022029126977551782
+      }
+    },
+    "test": {
+      "legacy": {
+        "rounds": 360,
+        "mae": 1517.3277777777778,
+        "rmse": 1698.5034049617525,
+        "bias": -1517.3277777777778,
+        "max_absolute": 3517,
+        "max_percent": 6.617794068643786,
+        "total_percent": -3.5131632193926494
+      },
+      "model": {
+        "rounds": 360,
+        "mae": 274.55833333333334,
+        "rmse": 342.4691997505437,
+        "bias": -95.6361111111111,
+        "max_absolute": 965,
+        "max_percent": 2.3002451909709056,
+        "total_percent": -0.22143222639301832
+      }
+    }
+  }
+}

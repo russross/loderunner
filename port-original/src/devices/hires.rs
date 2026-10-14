@@ -1,3 +1,4 @@
+use crate::event_timing::{Events, TimingEvent};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture};
@@ -12,6 +13,7 @@ pub struct Hires {
     dirty: [[bool; HEIGHT]; 2],
     address_row: Box<[u8]>,
     pending_cycles: u64,
+    pub events: Events,
 }
 
 impl Default for Hires {
@@ -28,6 +30,7 @@ impl Default for Hires {
             dirty: [[true; HEIGHT]; 2],
             address_row,
             pending_cycles: 0,
+            events: Events::default(),
         }
     }
 }
@@ -35,6 +38,7 @@ impl Default for Hires {
 impl Hires {
     pub fn account_cycles(&mut self, cycles: u64) {
         self.pending_cycles += cycles;
+        self.events.add(TimingEvent::GraphicsCycles, cycles);
     }
 
     pub fn take_cycles(&mut self) -> u64 {

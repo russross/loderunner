@@ -1,5 +1,6 @@
 use lode_original::devices::hires::{HEIGHT, WIDTH};
-use lode_original::session::{Configuration, Run, replay};
+use lode_original::event_timing::Model;
+use lode_original::session::{Configuration, Run, replay, replay_with_model};
 use lode_original::timing::{Clock, NTSC_CPU_HZ};
 use lode_trace::Trace;
 use sdl2::audio::AudioSpecDesired;
@@ -22,11 +23,12 @@ enum Command {
         path: PathBuf,
         rounds: usize,
         inputs: Vec<(usize, u8)>,
+        event_trace: Option<PathBuf>,
     },
-    Replay(PathBuf),
+    Replay(PathBuf, bool),
 }
 
-const USAGE: &str = "usage:\n  lode-original play [--level N] [--trace FILE] [--rounds N]\n  lode-original capture FILE [--level N] --rounds N [--input ROUND:HEXCODE]...\n  lode-original replay FILE\n  lode-original preview [N]";
+const USAGE: &str = "usage:\n  lode-original play [--level N] [--trace FILE] [--rounds N]\n  lode-original capture FILE [--level N] --rounds N [--input ROUND:HEXCODE]... [--event-trace FILE]\n  lode-original replay FILE [--event-model]\n  lode-original preview [N]";
 
 fn parse() -> Result<Command, String> {
     let mut args = std::env::args().skip(1);
@@ -42,10 +44,15 @@ fn parse() -> Result<Command, String> {
     }
     if command == "replay" {
         let path = PathBuf::from(args.next().ok_or("replay requires a trace file")?);
+        let event_model = match args.next().as_deref() {
+            None => false,
+            Some("--event-model") => true,
+            Some(_) => return Err(USAGE.into()),
+        };
         if args.next().is_some() {
             return Err(USAGE.into());
         }
-        return Ok(Command::Replay(path));
+        return Ok(Command::Replay(path, event_model));
     }
     if command != "play" && command != "capture" {
         return Err(USAGE.into());
@@ -61,6 +68,7 @@ fn parse() -> Result<Command, String> {
     let mut trace = None;
     let mut rounds = None;
     let mut inputs = Vec::new();
+    let mut event_trace = None;
     while let Some(option) = args.next() {
         let value = args
             .next()
@@ -69,6 +77,7 @@ fn parse() -> Result<Command, String> {
             "--level" => level = value.parse::<u8>().map_err(|_| "invalid level")?,
             "--trace" if command == "play" => trace = Some(PathBuf::from(value)),
             "--rounds" => rounds = Some(value.parse::<usize>().map_err(|_| "invalid round count")?),
+            "--event-trace" if command == "capture" => event_trace = Some(PathBuf::from(value)),
             "--input" if command == "capture" => {
                 let (round, key) = value.split_once(':').ok_or("input must be ROUND:HEXCODE")?;
                 inputs.push((
@@ -85,6 +94,7 @@ fn parse() -> Result<Command, String> {
             path,
             rounds: rounds.ok_or("capture requires --rounds")?,
             inputs,
+            event_trace,
         })
     } else {
         Ok(Command::Play {
@@ -264,11 +274,15 @@ fn execute(command: Command) -> Result<(), String> {
             trace,
             rounds,
         } => display(level, false, trace, rounds),
-        Command::Replay(path) => {
+        Command::Replay(path, event_model) => {
             let text = fs::read_to_string(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))?;
             let trace = Trace::from_json(&text).map_err(|error| error.to_string())?;
-            replay(&trace)?;
+            if event_model {
+                replay_with_model(&trace, &Model::calibrated())?;
+            } else {
+                replay(&trace)?;
+            }
             println!("Validated {} rounds", trace.rounds.len());
             Ok(())
         }
@@ -277,6 +291,7 @@ fn execute(command: Command) -> Result<(), String> {
             path,
             rounds,
             inputs,
+            event_trace,
         } => {
             let mut configuration = Configuration::original(level)?;
             configuration.wait_on_level_start = false;
@@ -290,8 +305,18 @@ fn execute(command: Command) -> Result<(), String> {
                 }
                 *slot = Some(key);
             }
-            let trace = lode_original::session::capture(configuration, &deliveries)?;
+            if event_trace.as_ref() == Some(&path) {
+                return Err("legacy and event trace paths must differ".into());
+            }
+            let mut run = Run::new(configuration, false)?;
+            for delivery in deliveries {
+                run.step(delivery)?;
+            }
+            let trace = run.trace()?;
             save_trace(&path, &trace)?;
+            if let Some(event_path) = event_trace {
+                save_trace(&event_path, &run.trace_with_model(&Model::calibrated())?)?;
+            }
             println!("Captured {} rounds", trace.rounds.len());
             Ok(())
         }

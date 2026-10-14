@@ -1,0 +1,29 @@
+{
+  "coefficients": {
+    "above_player_probe": 152.29147666409744,
+    "above_scan": 23.500124121181557,
+    "active_hole": 120.74101317577028,
+    "actor_draw": 681.8557289698247,
+    "below_left_probe": 59.105600891181744,
+    "below_player_probe": 35.84422624211952,
+    "below_right_probe": 25.46645270894865,
+    "below_scan": 76.26334518839256,
+    "better_route": 40.317208110424744,
+    "completion": -104.30059660802516,
+    "death": 304.7830503968463,
+    "dig": -943.3932578529168,
+    "distance_below": 24.488937866449756,
+    "distance_same_row": -41.43031276986819,
+    "graphics_cycles": 1.0,
+    "hole_scan": 1141.1538250408305,
+    "input": 81.64735759886656,
+    "limit_scan": -264.8235790167797,
+    "player_attempt": -106.83504796866323,
+    "round": -152.7015126971353,
+    "route_candidate": 437.9930535318357,
+    "same_row_scan": 69.3634412156239,
+    "score": -837.7425000278416,
+    "sound_cycles": 1.0,
+    "tile_draw": 209.1568103949967
+  }
+}

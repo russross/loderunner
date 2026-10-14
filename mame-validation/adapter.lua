@@ -18,6 +18,16 @@ local observed_latch = false
 local continue_interval
 local polls = {}
 local skip_main = false
+local timing_events, timing_hooks, timing_installed = {}, {}, {}
+if config.profile_timing then
+    for name, event in pairs({DRAW_SPRITE="tile_draw", DRAW_SPRITE_AT_PIXEL_COORDS="actor_draw",
+        ERASE_SPRITE_AT_PIXEL_COORDS="sprite_erase", PLAY_SOUND="sound_section", PLAY_NOTE="note",
+        INC_ANIM_STATE="player_animation", DRAW_PLAYER="player_draw",
+        DETERMINE_GUARD_MOVE="guard_route", HANDLE_TIMERS="hole_scan",
+        ENABLE_NEXT_LEVEL_LADDERS="exit"}) do
+        timing_hooks[assert(symbols[name], "missing timing symbol " .. name)] = event
+    end
+end
 
 local function cycles()
     debugger:command('printf "VLD_CYCLES %d",totalcycles')
@@ -44,7 +54,10 @@ local function drain_signals()
     local last = #debugger.consolelog
     for i = log_cursor + 1, last do
         local line = debugger.consolelog[i]
-        if line and line:sub(1, 4) == "VLD " then
+        if line and line:sub(1, 4) == "TME " then
+            local w = words(line)
+            timing_events[#timing_events + 1] = {event=w[2], cycle=assert(tonumber(w[3]))}
+        elseif line and line:sub(1, 4) == "VLD " then
             local w = words(line)
             local kind, slot = w[2], tonumber(w[3])
             if kind == "motion" then signals[#signals + 1] = motion(slot, w[4])
@@ -63,7 +76,12 @@ local function drain_signals()
     log_cursor = last
 end
 local function hook(address, message, args, condition)
-    cpu.debug:bpset(address, condition or "1", 'printf "VLD ' .. message .. '"' .. (args and ',' .. args or '') .. ';g')
+    local action = 'printf "VLD ' .. message .. '"' .. (args and ',' .. args or '')
+    if timing_hooks[address] then
+        action = action .. ';printf "TME ' .. timing_hooks[address] .. ' %d",totalcycles'
+        timing_installed[address] = true
+    end
+    cpu.debug:bpset(address, condition or "1", action .. ';g')
 end
 local function at(name) return assert(symbols[name], "missing symbol " .. name) end
 local function stop(name, condition)
@@ -101,6 +119,11 @@ local function install_hooks()
     hook(at("HANDLE_TIMERS.reset_guard_gold_timer"), "contact_cell %d %d %d", "x,b@85,b@86")
     hook(at("ENABLE_NEXT_LEVEL_LADDERS"), "exit")
     hook(at("RECORD_HI_SCORE_DATA_TO_DISK.write_here"), "score")
+    for address, event in pairs(timing_hooks) do
+        if not timing_installed[address] then
+            cpu.debug:bpset(address, "1", 'printf "TME ' .. event .. ' %d",totalcycles;g')
+        end
+    end
 end
 
 local function install_devices()
@@ -121,6 +144,10 @@ local function sample()
     if not origin then origin = current end
     save_json(config.work .. "/sample-" .. index .. ".json", {cycle=current-origin, phase=phase,
         attempt=attempt, memory=memory(), inputs=inputs, signals=signals})
+    if config.profile_timing then
+        save_json(config.work .. "/timing-" .. index .. ".json", timing_events)
+    end
+    timing_events = {}
     assert(cycles() == current, "sampling advanced machine time")
     inputs, signals, log_cursor = {}, {}, #debugger.consolelog
     emitted = true

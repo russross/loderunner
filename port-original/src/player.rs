@@ -1,4 +1,5 @@
 use crate::IMAGE;
+use crate::event_timing::TimingEvent;
 use crate::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
 use crate::sound::{Note, play_note};
 use crate::state::Game;
@@ -149,6 +150,7 @@ impl Game {
     }
 
     pub fn draw_player(&mut self) {
+        self.clock.events.add(TimingEvent::PlayerDraw, 1);
         let (sprite, x, y) = self.player_sprite_coordinates();
         let overlap = draw_sprite_at_pixels(&mut self.hires, sprite, x, y);
         if overlap != 0 && self.didnt_pick_up_gold {
@@ -157,6 +159,7 @@ impl Game {
     }
 
     pub fn increment_player_animation(&mut self, lower: u8, upper: u8) {
+        self.clock.events.add(TimingEvent::PlayerAnimation, 1);
         self.player.animation = self.player.animation.wrapping_add(1);
         if self.player.animation <= lower || self.player.animation > upper {
             self.player.animation = lower;
@@ -164,6 +167,7 @@ impl Game {
     }
 
     pub fn add_and_update_score(&mut self, low: u8, high: u8) {
+        self.clock.events.add(TimingEvent::Score, 1);
         self.clock.advance(350);
         self.score.add(low, high);
         self.session.score = self.score.decimal();
@@ -184,6 +188,7 @@ impl Game {
     // Gold is collected only at both centered adjustments. The active map remains
     // occupied by the player; background and graphics lose the gold independently.
     pub fn check_player_gold(&mut self, journal: &mut Journal) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::GoldCheck, 1);
         if self.player.x_adjust != 2 || self.player.y_adjust != 2 {
             return Ok(());
         }
@@ -251,6 +256,7 @@ impl Game {
     }
 
     pub fn fall_player(&mut self, journal: &mut Journal) -> Result<(), String> {
+        self.clock.events.add(TimingEvent::PlayerFall, 1);
         self.falling_sound = true;
         self.erase_player();
         self.player.animation = if self.player.facing == Facing::Left {
@@ -279,6 +285,7 @@ impl Game {
     }
 
     pub fn try_moving_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
         self.clock.advance(180);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.player.x_adjust < 3
@@ -316,6 +323,7 @@ impl Game {
     }
 
     pub fn try_moving_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
         self.clock.advance(180);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.player.x_adjust >= 2
@@ -353,6 +361,7 @@ impl Game {
     }
 
     pub fn try_moving_up(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
         self.clock.advance(200);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.background[index] != Tile::Ladder {
@@ -393,6 +402,7 @@ impl Game {
     }
 
     pub fn try_moving_down(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.events.add(TimingEvent::PlayerAttempt, 1);
         self.clock.advance(180);
         let index = usize::from(self.player.row) * 28 + usize::from(self.player.col);
         if self.player.y_adjust >= 2
@@ -433,6 +443,7 @@ impl Game {
     }
 
     pub fn continue_digging_left(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.events.add(TimingEvent::Dig, 1);
         self.clock.advance(200);
         if self.player.row == 15 || self.player.col == 0 {
             self.dig_direction = 0;
@@ -509,6 +520,7 @@ impl Game {
     }
 
     pub fn continue_digging_right(&mut self, journal: &mut Journal) -> Result<bool, String> {
+        self.clock.events.add(TimingEvent::Dig, 1);
         self.clock.advance(200);
         if self.player.row == 15 || self.player.col == 27 {
             self.dig_direction = 0;

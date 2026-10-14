@@ -52,3 +52,9 @@ Requires MAME and installed enhanced Apple IIe ROMs (`apple2ee`); tested with De
 `--mame PATH` and `--rompath PATH` override installation defaults. `--work DIR` chooses an empty artifact directory. Reports and failure checkpoints otherwise go under `artifacts/mame-validation/`.
 
 Gameplay timing defaults to 2,000 cycles plus 10% of the port interval; `--tolerance-cycles N` and `--tolerance-percent N` change it. Transition timing has a separate 20-million-cycle allowance for original disk/loading/presentation delays. State and events compare exactly. All seven selected original boards, including level 150, pass the default gameplay allowance with the `fixed-v2` initialization profile. Rust retains falling-sound state across reloads and new games. See [the timing diagnosis](sources/analysis/TIMING.md) and [the validation interface](mame-validation/README.md).
+
+
+Compare timing estimates
+------------------------
+
+`capture legacy.json --rounds 120 --input 0:cc --event-trace model.json` writes both timelines; `replay model.json --event-model` reexecutes the event-based estimate. Live pacing retains the existing clock. [The event model](sources/analysis/EVENT_TIMING.md) documents factors, experiments, results, and the `make -C mame-validation timing-measure`, `timing-fit`, and `timing-verify` targets.

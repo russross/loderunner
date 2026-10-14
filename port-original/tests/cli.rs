@@ -37,6 +37,8 @@ fn command_line_capture_replay_and_negative_timing_validation() {
         &[
             "capture",
             "trace.json",
+            "--event-trace",
+            "events.json",
             "--rounds",
             "120",
             "--input",
@@ -51,6 +53,12 @@ fn command_line_capture_replay_and_negative_timing_validation() {
         capture.status.success(),
         "{}",
         String::from_utf8_lossy(&capture.stderr)
+    );
+    let event_replay = command(&files, &["replay", "events.json", "--event-model"]);
+    assert!(
+        event_replay.status.success(),
+        "{}",
+        String::from_utf8_lossy(&event_replay.stderr)
     );
     let replay = command(&files, &["replay", "trace.json"]);
     assert!(

@@ -35,3 +35,9 @@ All seven selected boards, including level 150, pass the default gameplay timing
 The former level-150 spike came from a falling-sound pitch counter left as loader residue by `fixed-v1`. Its correction is initialization agreement and retained state, rather than a larger timing allowance; see [the timing analysis](../sources/analysis/TIMING.md).
 
 The adapter uses the documented [Lua debugger interface](https://docs.mamedev.org/luascript/ref-debugger.html) and [memory taps](https://docs.mamedev.org/luascript/ref-mem.html). The installed release's [headless debugger implementation](https://github.com/mamedev/mame/blob/mame0276/src/osd/modules/debugger/none.cpp) automatically resumes when its callback returns. The adapter keeps that callback at the stopped boundary until an atomic control file arrives, so validator latency never advances emulated time.
+
+
+Event timing experiments
+------------------------
+
+`make timing-measure` records controlled boards and original-level schedules with independent cycle and source-entry observations. `make timing-fit` fits the parallel Rust timing model and writes both trace estimates and their comparison. `make timing-verify` validates selected model traces in fresh unprofiled machines and requires their actual durations to equal the profiled measurements. `TIMING_WORK` selects the artifact directory; see [the event timing specification](../sources/analysis/EVENT_TIMING.md).

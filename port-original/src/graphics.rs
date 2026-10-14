@@ -1,5 +1,6 @@
 use crate::IMAGE;
 use crate::devices::hires::Hires;
+use crate::event_timing::TimingEvent;
 use crate::timing::row_to_addr;
 
 const MASK0: [u8; 7] = [0, 1, 3, 7, 15, 31, 63];
@@ -44,6 +45,7 @@ pub fn compute_shifted_sprite(sprite: u8, shift: u8) -> [u8; 33] {
 }
 
 pub fn draw_sprite(hires: &mut Hires, page: usize, sprite: u8, col: u8, row: u8) {
+    hires.events.add(TimingEvent::TileDraw, 1);
     assert!(page < 2 && col < 28 && row < 17);
     let y = IMAGE[0x1c51 + usize::from(row)];
     let byte = IMAGE[0x1c62 + usize::from(col)];
@@ -75,6 +77,7 @@ pub fn draw_sprite(hires: &mut Hires, page: usize, sprite: u8, col: u8, row: u8)
 // Actor drawing reports the original foreground/background overlap bits before
 // merging the sprite. The caller applies gameplay's gold-pickup exception.
 pub fn draw_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) -> u8 {
+    hires.events.add(TimingEvent::ActorDraw, 1);
     let byte = IMAGE[0x1c9a + usize::from(half_x)];
     let shift = IMAGE[0x1d26 + usize::from(half_x)];
     let block = compute_shifted_sprite(sprite, shift);
@@ -101,6 +104,7 @@ pub fn draw_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) -
 }
 
 pub fn erase_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) {
+    hires.events.add(TimingEvent::SpriteErase, 1);
     let byte = IMAGE[0x1c9a + usize::from(half_x)];
     let shift = IMAGE[0x1d26 + usize::from(half_x)];
     let block = compute_shifted_sprite(sprite, shift);

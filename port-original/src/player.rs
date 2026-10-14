@@ -118,7 +118,7 @@ impl Game {
             vec![]
         };
 
-        if self.session.phase != lode_trace::Phase::Playing || !self.alive {
+        if self.session.phase != lode_trace::Phase::Playing {
             return Ok(inputs);
         }
 

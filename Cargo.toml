@@ -1,5 +1,5 @@
 [workspace]
-members = ["trace", "port-original"]
+members = ["trace", "port-original", "mame-validation"]
 resolver = "3"
 
 [workspace.package]

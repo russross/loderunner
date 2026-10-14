@@ -10,7 +10,7 @@ Requires Rust 1.88 or newer and SDL2 development libraries available to the link
     target/debug/lode-original play --level 1 --trace play.json
     target/debug/lode-original replay play.json
 
-Replay executes headlessly without sleeps and compares fresh gameplay transitions and relative round timing. The same-implementation trace round-trip milestone is implemented; original-machine equivalence remains unvalidated. See [SEMANTICS.md](SEMANTICS.md) for execution rules and fidelity limits.
+Replay executes headlessly without sleeps and compares fresh gameplay transitions and relative round timing. MAME independently validates port-generated traces against the original Apple II code. See [SEMANTICS.md](SEMANTICS.md) for execution rules and fidelity limits.
 
 Controls
 --------
@@ -33,8 +33,22 @@ Input rounds are zero-based and codes are original high-bit hexadecimal keyboard
 Workspace
 ---------
 
-`sources/` holds reference assets and analysis, `trace/` defines canonical snapshots and trace validation, and `port-original/` contains the procedural port and devices. The 42 behavioral tests include capture/reexecution on all 150 original boards and SDL dummy-device integration. Full emulator trace instrumentation is deferred.
+`sources/` holds reference assets and analysis, `trace/` defines canonical snapshots and machine observation, `port-original/` contains the procedural port and devices, and `mame-validation/` drives external validation. Portable tests include capture/reexecution on all 150 original boards and SDL dummy-device integration.
 
 `make mame-poc` runs the optional [MAME debugger proof of concept](sources/mame-poc/README.md), tested with Debian MAME 0.276 and installed enhanced Apple IIe ROMs (`apple2ee`). It checks repeated raw snapshots, cycle counts, keyboard injection, and original gameplay boundaries, including normal boot from the supplied Apple II 4am disk. It does not compare the Rust port against the original machine.
 
 `make mostlyclean` removes incremental build intermediates; `make clean` removes build outputs. Neither removes trace files or high scores. Reference provenance and licensing remain in `sources/lode_runner_reveng/`.
+
+
+Validate against MAME
+---------------------
+
+Requires MAME and installed enhanced Apple IIe ROMs (`apple2ee`); tested with Debian MAME 0.276. The supplied Apple II 4am archive remains under `sources/`. Validation boots a private disk copy headlessly and supplies recorded observed inputs.
+
+    make
+    target/debug/lode-mame-validation validate run.json
+    make mame-validation
+
+`--mame PATH` and `--rompath PATH` override installation defaults. `--work DIR` chooses an empty artifact directory. Reports and failure checkpoints otherwise go under `artifacts/mame-validation/`.
+
+Gameplay timing defaults to 2,000 cycles plus 10% of the port interval; `--tolerance-cycles N` and `--tolerance-percent N` change it. Transition timing has a separate 20-million-cycle allowance for original disk/loading/presentation delays. State and events compare exactly. The selected level-150 route-search fixture exceeds the default timing allowance; its state/event check uses an explicit 100% allowance. This is a known timing-budget gap, not evidence of cycle accuracy. See [the validation interface](mame-validation/README.md) for details.

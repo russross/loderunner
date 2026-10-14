@@ -1,6 +1,6 @@
 use lode_original::session::{Configuration, capture, replay};
 use lode_original::storage::{LevelRecord, original_level};
-use lode_trace::{Change, Motion, Phase, Tile, Trace};
+use lode_trace::{Change, Facing, Life, Motion, Phase, Tile, Trace};
 
 fn record(tiles: &[(usize, usize, Tile)]) -> LevelRecord {
     let mut record = [0; 256];
@@ -18,6 +18,20 @@ fn configuration(levels: Vec<LevelRecord>) -> Configuration {
         start: 0,
         wait_on_level_start: false,
     }
+}
+
+#[test]
+fn sacrifice_finishes_movement_and_reload_retains_direction() {
+    let config = configuration(vec![record(&[(5, 15, Tile::Player)])]);
+    let dead = capture(config.clone(), &[Some(0xca), Some(0x81)]).unwrap();
+    assert_eq!(dead.final_state.actors[0].x_adjust, 0);
+    assert_eq!(dead.final_state.actors[0].motion, Motion::Left);
+    assert_eq!(dead.final_state.actors[0].life, Life::Dead);
+    let restarted = capture(config, &[Some(0xca), Some(0x81), None]).unwrap();
+    assert_eq!(restarted.final_state.actors[0].x_adjust, 2);
+    assert_eq!(restarted.final_state.actors[0].facing, Facing::Left);
+    assert_eq!(restarted.final_state.session.attempt, 1);
+    assert_eq!(replay(&restarted).unwrap(), restarted);
 }
 
 #[test]
@@ -134,6 +148,28 @@ fn high_score_qualification_and_initials_round_trip() {
     assert_eq!(trace.final_state.session.phase, Phase::GameOver);
     assert_eq!(trace.final_state.high_scores[0].initials, *b"ABC");
     assert_eq!(trace.final_state.high_scores[0].score, 250);
+    assert_eq!(replay(&trace).unwrap(), trace);
+}
+
+#[test]
+fn initials_retain_last_cursor_slot_allow_space_and_ignore_digits() {
+    let config = configuration(vec![record(&[(5, 15, Tile::Player), (6, 15, Tile::Gold)])]);
+    let mut keys = vec![Some(0xcc), None, None, None, None, Some(0xa0)];
+    keys.extend([Some(0x92), None]);
+    keys.extend([
+        Some(0xc1),
+        Some(0xc2),
+        Some(0xc3),
+        Some(0xc4),
+        Some(0x88),
+        Some(0xa0),
+        Some(0x95),
+        Some(0xae),
+        Some(0xb1),
+        Some(0x8d),
+    ]);
+    let trace = capture(config, &keys).unwrap();
+    assert_eq!(trace.final_state.high_scores[0].initials, *b"A .");
     assert_eq!(replay(&trace).unwrap(), trace);
 }
 

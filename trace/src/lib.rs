@@ -1,5 +1,7 @@
 //! Round observations independent of graphics, storage, and game implementation.
 
+pub mod apple2;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};

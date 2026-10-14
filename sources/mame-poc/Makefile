@@ -1,10 +1,12 @@
-.PHONY: all types check probe mostlyclean clean
+.PHONY: all types symbols-types check probe mostlyclean clean
 MAME ?= /usr/games/mame
 WORK ?= $(abspath ../../artifacts/mame-poc)
 ROMPATH ?=
 all: check
 types:
 	uv run ty check run.py
+symbols-types:
+	uv run ty check ../analysis/generate_symbols.py
 check:
 	$(MAKE) types
 	./run.py --mame "$(MAME)" --work "$(WORK)" $(if $(ROMPATH),--rompath "$(ROMPATH)",)

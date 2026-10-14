@@ -260,6 +260,11 @@ impl Run {
             Game::load_level(&self.configuration.levels[self.level_index].0, level, false)?;
         std::mem::swap(&mut next.clock, &mut self.game.clock);
         std::mem::swap(&mut next.speaker, &mut self.game.speaker);
+        // Level loading replaces positions and animations but retains direction
+        // flags, including when a new game follows the game-over screen.
+        next.player.facing = self.game.player.facing;
+        next.guards.facings = self.game.guards.facings;
+        next.guards.phase = self.game.guards.phase;
         if !new_game {
             next.session = self.game.session.clone();
             next.session.attempt += 1;
@@ -267,7 +272,6 @@ impl Run {
             next.score = self.game.score;
             next.difficulty = self.game.difficulty;
             next.resurrection_col = self.game.resurrection_col;
-            next.guards.phase = self.game.guards.phase;
         }
         next.sound.enabled = self.game.sound.enabled;
         next.high_scores = self.game.high_scores.clone();
@@ -324,9 +328,11 @@ impl Run {
         }
         if code == 0x88 {
             cursor = cursor.saturating_sub(1);
-        } else if matches!(code & 0x7f, b'A'..=b'Z' | b'0'..=b'9' | b'.') && cursor < 3 {
+        } else if code == 0x95 {
+            cursor = (cursor + 1).min(2);
+        } else if matches!(code & 0x7f, b'A'..=b'Z' | b'.' | b' ') {
             self.game.high_scores[index].initials[cursor] = code & 0x7f;
-            cursor += 1;
+            cursor = (cursor + 1).min(2);
         }
         self.initials = Some((index, cursor));
         self.game.show_high_scores();

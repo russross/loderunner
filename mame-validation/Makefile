@@ -1,4 +1,5 @@
 .PHONY: all check test mostlyclean clean
+TEST_FILTER ?=
 all:
 	$(MAKE) -C .. all
 check:
@@ -7,7 +8,7 @@ check:
 	$(MAKE) -C ../sources/mame-poc symbols-types
 	$(MAKE) test
 test:
-	cargo test -p lode-mame-validation -- --include-ignored --test-threads=1
+	cargo test -p lode-mame-validation $(TEST_FILTER) -- --include-ignored --test-threads=1
 mostlyclean:
 	@:
 clean:

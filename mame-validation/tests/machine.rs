@@ -1,7 +1,9 @@
 use lode_mame_validation::{Options, validate};
-use lode_original::session::{Configuration, capture};
+use lode_original::session::{Configuration, Run, capture};
 use lode_original::storage::{LevelRecord, original_level};
-use lode_trace::{Change, Motion, Tile};
+use lode_trace::apple2::Sample;
+use lode_trace::{Change, Motion, Phase, Tile};
+use std::fs;
 
 fn board(tiles: &[(usize, usize, Tile)]) -> LevelRecord {
     let mut bytes = [0; 256];
@@ -41,18 +43,8 @@ fn gameplay_and_occurrences_match_original_machine() {
             keys[round] = Some(key);
         }
         let trace = capture(config, &keys).unwrap();
-        let mut options = Options::default();
-        // This board falls before polling input, retaining a loader-derived sound
-        // pitch counter. The current profile does not normalize that counter.
-        if level == 150 {
-            assert!(
-                validate(&trace, &options)
-                    .unwrap_err()
-                    .contains("timing differs")
-            );
-            options.gameplay.percent = 100;
-        }
-        validate(&trace, &options).unwrap_or_else(|error| panic!("level {level}: {error}"));
+        validate(&trace, &Options::default())
+            .unwrap_or_else(|error| panic!("level {level}: {error}"));
     }
 }
 
@@ -88,6 +80,53 @@ fn digging_refill_falling_and_delayed_input_match_machine() {
         &Options::default(),
     )
     .unwrap();
+}
+
+#[test]
+#[ignore = "requires MAME 0.276 and Apple IIe enhanced ROMs"]
+fn airborne_restarts_preserve_sound_state_without_reapplying_profile() {
+    let config = configuration(
+        vec![board(&[
+            (5, 0, Tile::Player),
+            (6, 1, Tile::Guard),
+            (6, 2, Tile::Brick),
+        ])],
+        false,
+    );
+    let mut run = Run::new(config, false).unwrap();
+    let mut sound_states = vec![(run.game.falling_pitch, run.game.falling_sound)];
+    for _ in 0..100 {
+        if run.game.session.phase == Phase::GameOver {
+            run.step(Some(0xa0)).unwrap();
+            sound_states.push((run.game.falling_pitch, run.game.falling_sound));
+            run.step(None).unwrap();
+            sound_states.push((run.game.falling_pitch, run.game.falling_sound));
+            let trace = run.trace().unwrap();
+            let report = validate(&trace, &Options::default()).unwrap();
+            assert_eq!(report.initialization, "fixed-v2");
+            // These execution counters are deliberately outside the trace model.
+            // Inspect retained raw observations only after input-only validation.
+            for (index, (pitch, falling)) in sound_states.into_iter().enumerate() {
+                let sample: Sample = serde_json::from_str(
+                    &fs::read_to_string(report.work.join(format!("sample-{index}.json"))).unwrap(),
+                )
+                .unwrap();
+                let byte = |address: usize| {
+                    u8::from_str_radix(&sample.memory[address * 2..address * 2 + 2], 16).unwrap()
+                };
+                assert_eq!(byte(0xa4), pitch, "sample {index}: falling pitch");
+                assert_eq!(
+                    byte(0x9b) == 0,
+                    falling,
+                    "sample {index}: pending landing sound"
+                );
+            }
+            return;
+        }
+        run.step(None).unwrap();
+        sound_states.push((run.game.falling_pitch, run.game.falling_sound));
+    }
+    panic!("airborne collisions did not reach game over");
 }
 
 #[test]

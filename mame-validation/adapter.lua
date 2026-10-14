@@ -185,6 +185,9 @@ local function stopped()
             if config.fixed_initialization then
                 space:write_u8(5, 0); space:write_u8(0x64, 0)
                 for slot=1,5 do space:write_u8(0xc90+slot, 0) end
+                -- A supported input dispatch establishes these sound values.
+                -- Airborne starts need the same initial state before that path.
+                space:write_u8(0xa4, 0x20); space:write_u8(0x9b, 0x20)
             end
             cpu.debug:bpclear(); stop("WAIT_FOR_KEY_WITH_CURSOR_PAGE_1"); boot = "ready"
         else

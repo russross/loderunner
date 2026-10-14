@@ -265,6 +265,10 @@ impl Run {
         next.player.facing = self.game.player.facing;
         next.guards.facings = self.game.guards.facings;
         next.guards.phase = self.game.guards.phase;
+        // Falling sound carries into the next board until supported movement
+        // consumes the pending landing sound and resets its pitch counter.
+        next.falling_pitch = self.game.falling_pitch;
+        next.falling_sound = self.game.falling_sound;
         if !new_game {
             next.session = self.game.session.clone();
             next.session.attempt += 1;

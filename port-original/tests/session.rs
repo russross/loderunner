@@ -1,4 +1,4 @@
-use lode_original::session::{Configuration, capture, replay};
+use lode_original::session::{Configuration, Run, capture, replay};
 use lode_original::storage::{LevelRecord, original_level};
 use lode_trace::{Change, Facing, Life, Motion, Phase, Tile, Trace};
 
@@ -32,6 +32,41 @@ fn sacrifice_finishes_movement_and_reload_retains_direction() {
     assert_eq!(restarted.final_state.actors[0].facing, Facing::Left);
     assert_eq!(restarted.final_state.session.attempt, 1);
     assert_eq!(replay(&restarted).unwrap(), restarted);
+}
+
+#[test]
+fn airborne_death_preserves_whistle_across_reload_and_new_game() {
+    let config = configuration(vec![record(&[
+        (5, 0, Tile::Player),
+        (6, 1, Tile::Guard),
+        (6, 2, Tile::Brick),
+    ])]);
+    let mut run = Run::new(config, false).unwrap();
+    let mut deaths = 0;
+    for _ in 0..100 {
+        if run.game.session.phase == Phase::Died {
+            let pitch = run.game.falling_pitch;
+            assert!(run.game.falling_sound);
+            run.step(None).unwrap();
+            // The death tune finishes with an empty sound call, which advances
+            // the retained falling whistle once before the board is reloaded.
+            assert_eq!(run.game.falling_pitch, pitch.wrapping_add(1));
+            assert!(run.game.falling_sound);
+            deaths += 1;
+        } else if run.game.session.phase == Phase::GameOver {
+            let pitch = run.game.falling_pitch;
+            run.step(Some(0xa0)).unwrap();
+            assert_eq!(run.game.falling_pitch, pitch);
+            assert!(run.game.falling_sound);
+            assert_eq!(run.game.session.attempt, 0);
+            assert_eq!(deaths, 5);
+            assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
+            return;
+        } else {
+            run.step(None).unwrap();
+        }
+    }
+    panic!("airborne collisions did not reach game over");
 }
 
 #[test]

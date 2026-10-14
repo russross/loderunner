@@ -545,7 +545,7 @@ pub fn validate(expected: &Trace, options: &Options) -> Result<Report, String> {
             .ok_or("missing MAME version")?
             .into(),
         initialization: if options.fixed_initialization {
-            "fixed-v1"
+            "fixed-v2"
         } else {
             "4am-loader"
         },

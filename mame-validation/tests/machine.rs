@@ -42,8 +42,8 @@ fn gameplay_and_occurrences_match_original_machine() {
         }
         let trace = capture(config, &keys).unwrap();
         let mut options = Options::default();
-        // This board exercises long guard searches whose static port budget is
-        // still coarse. State and event comparison remains exact at this limit.
+        // This board falls before polling input, retaining a loader-derived sound
+        // pitch counter. The current profile does not normalize that counter.
         if level == 150 {
             assert!(
                 validate(&trace, &options)

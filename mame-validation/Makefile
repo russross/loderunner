@@ -37,3 +37,11 @@ timing-types:
 .PHONY: timing-port-test
 timing-port-test:
 	cargo test -p lode-original --test event_timing --test cli
+
+.PHONY: port-test
+port-test:
+	cargo test -p lode-mame-validation --test port -- --include-ignored --test-threads=1
+
+.PHONY: port-controls
+port-controls:
+	cargo test -p lode-mame-validation --test port waiting_pause_and_high_score_screen_match_machine -- --include-ignored --test-threads=1

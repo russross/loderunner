@@ -43,7 +43,7 @@ Release-specific details
 *   Wait for reset to reach its vector before replacing PC; startup scripting can run while CPU reset is still pending.
 *   Keep tap objects alive. Keyboard acknowledgement must observe writes as well as reads: CHECK_FOR_INPUT uses STX $C010.
 
-The periodic callback runs only after an execution breakpoint has stopped the CPU. It does not sample a running PC periodically or use video frames as gameplay rounds. See [SEMANTICS.md](../../SEMANTICS.md) for the complete probe flow and its limits.
+The periodic callback runs only after an execution breakpoint has stopped the CPU. It does not sample a running PC periodically or use video frames as gameplay rounds. See [NOTES.md](../../NOTES.md) for the complete probe flow and its limits.
 
 Artifacts and cleanup
 ---------------------

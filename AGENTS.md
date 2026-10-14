@@ -1,0 +1,1 @@
+Check in to git automatically with 1-line commit messages at logical milestones. This is a project override for the general no-git rule. If there are uncommited changes, always ask if they should be included in the next checkin; do not automatically exclude them.

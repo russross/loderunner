@@ -37,6 +37,7 @@ name = "lode-mame-validation"
 version = "0.1.0"
 dependencies = [
  "lode-original",
+ "lode-port",
  "lode-trace",
  "serde",
  "serde_json",
@@ -46,6 +47,17 @@ dependencies = [
 name = "lode-original"
 version = "0.1.0"
 dependencies = [
+ "lode-trace",
+ "sdl2",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lode-port"
+version = "0.1.0"
+dependencies = [
+ "lode-original",
  "lode-trace",
  "sdl2",
  "serde",

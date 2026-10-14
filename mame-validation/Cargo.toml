@@ -11,3 +11,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 lode-original = { path = "../port-original" }
+lode-port = { path = "../port" }

@@ -1,6 +1,5 @@
 //! Incremental RGB presentation of the game's composed sprite shapes.
 use crate::collision::{Layer, Scene};
-use crate::event_timing::Events;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture};
@@ -15,7 +14,6 @@ pub struct Display {
     rgb: Box<[u8]>,
     full_upload: bool,
     needs_present: bool,
-    pub events: Events,
 }
 
 impl Default for Display {
@@ -25,7 +23,6 @@ impl Default for Display {
             rgb: vec![0; PITCH * HEIGHT].into_boxed_slice(),
             full_upload: true,
             needs_present: true,
-            events: Events::default(),
         }
     }
 }

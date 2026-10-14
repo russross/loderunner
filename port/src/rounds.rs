@@ -41,9 +41,7 @@ impl Game {
     }
 
     pub fn play_sound_section(&mut self) {
-        self.clock
-            .events
-            .merge(std::mem::take(&mut self.display.events));
+        self.clock.flush_draws();
         let section = match self.sound.peek() {
             Some(note) => SoundSection::Buffered {
                 duration: note.duration,

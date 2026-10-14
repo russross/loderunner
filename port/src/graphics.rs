@@ -55,7 +55,7 @@ impl Game {
     // These inputs describe the original machine's work for the cycle model.
     // Presentation consumes only changed scene ink and does not add model work.
     fn record_draw(&mut self, kind: DrawKind, sprite: u8, half_x: u8, y: u8) {
-        self.display.events.draw(Draw {
+        self.clock.record_draw(Draw {
             kind,
             sprite,
             half_x,

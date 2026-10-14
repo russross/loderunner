@@ -1,5 +1,5 @@
 use crate::actors::Command;
-use crate::event_timing::{Events, Model, TimingEvent, TimingInterval};
+use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::sound::Note;
 use crate::state::Game;
@@ -110,8 +110,7 @@ impl Run {
     ) -> Result<(), String> {
         self.last_start = self.game.clock.cycles;
         let phase = self.game.session.phase;
-        self.game.clock.events = Events::default();
-        self.game.display.events = Events::default();
+        self.game.clock.begin_interval();
         if phase == Phase::Playing {
             self.game.clock.events.add(TimingEvent::Round, 1);
         }
@@ -192,14 +191,10 @@ impl Run {
             .clock
             .events
             .add(TimingEvent::Input, inputs.len() as u64);
-        self.game
-            .clock
-            .events
-            .merge(std::mem::take(&mut self.game.display.events));
         let interval = TimingInterval {
             phase,
             end_phase: self.game.session.phase,
-            events: std::mem::take(&mut self.game.clock.events),
+            events: self.game.clock.finish_events(),
         };
         self.game
             .clock
@@ -271,14 +266,7 @@ impl Run {
             Game::load_level(&self.configuration.levels[self.level_index].0, level, false)?;
         // Preserve pending work before replacing the board's devices. New board
         // rendering follows transition sound in the interval journal.
-        self.game
-            .clock
-            .events
-            .merge(std::mem::take(&mut self.game.display.events));
-        self.game
-            .clock
-            .events
-            .merge(std::mem::take(&mut next.clock.events));
+        self.game.clock.append_initialization(&mut next.clock);
         std::mem::swap(&mut next.clock, &mut self.game.clock);
         std::mem::swap(&mut next.speaker, &mut self.game.speaker);
         // Level loading replaces positions and animations but retains direction

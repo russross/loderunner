@@ -199,11 +199,11 @@ fn display(
     run.game.clock = Clock::new(!preview);
     let mut round = 0;
 
-    // A bounded queue permits validator lag without unlimited retained work.
+    // Validation never delays presentation or audio while MAME boots or catches up.
     // Closing the sender drains queued intervals and ends the stopped machine.
     let (sender, worker) = if validate_mame {
         let initial = run.trace()?;
-        let (sender, receiver) = mpsc::sync_channel(8);
+        let (sender, receiver) = mpsc::channel();
         let worker = thread::spawn(move || {
             validate_stream(&initial, &Options::default(), &mut || {
                 Ok(receiver.recv().ok())

@@ -1,5 +1,5 @@
 use lode_port::state::Game;
-use lode_port::storage::{decode_level, original_level};
+use lode_port::storage::{decode_level, original_high_scores, original_level};
 use lode_trace::{ActorId, Cell, Tile};
 
 #[test]
@@ -11,6 +11,22 @@ fn all_original_levels_decode_and_initialize_observer_state() {
         assert!(game.guards.len() <= 5);
         assert!(game.hidden_ladders.len() <= 45);
     }
+}
+
+// Reference conversion preserves full sectors, including bytes outside the
+// playfield, and the initial score table used by native capture configuration.
+#[test]
+fn generated_assets_preserve_original_records_and_scores() {
+    for level in 1..=150 {
+        assert_eq!(
+            original_level(level).unwrap(),
+            lode_original::storage::original_level(level).unwrap()
+        );
+    }
+    assert_eq!(
+        original_high_scores(),
+        lode_original::storage::original_high_scores().unwrap()
+    );
 }
 
 #[test]

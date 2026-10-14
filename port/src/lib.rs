@@ -2,6 +2,7 @@
 
 pub mod actors;
 pub mod animation;
+mod assets;
 pub mod board;
 pub mod collision;
 pub mod devices;
@@ -18,5 +19,3 @@ pub mod sound;
 pub mod state;
 pub mod storage;
 pub mod timing;
-
-pub static IMAGE: &[u8] = include_bytes!("../../sources/lode_runner_reveng/main.bin");

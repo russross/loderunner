@@ -5,7 +5,7 @@ use crate::player::Journal;
 use crate::score::Score;
 use crate::sound::Note;
 use crate::state::{Game, Progress};
-use crate::storage::{LevelRecord, decode_level, original_level};
+use crate::storage::{LevelRecord, decode_level, original_high_scores, original_level};
 use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Trace};
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +26,7 @@ impl Configuration {
             .map(|number| original_level(number).map(LevelRecord))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            high_scores: crate::storage::original_high_scores()?,
+            high_scores: original_high_scores(),
             levels,
             start: usize::from(level - 1),
             wait_on_level_start: true,

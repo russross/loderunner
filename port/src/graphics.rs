@@ -1,5 +1,5 @@
 //! Sprite assets and the ordered appearance operations of gameplay.
-use crate::IMAGE;
+use crate::assets::SPRITE_ROWS;
 use crate::collision::Layer;
 use crate::event_timing::{Draw, DrawKind};
 use crate::state::Game;
@@ -8,24 +8,10 @@ pub const LEFT_DIG_DEBRIS: [u8; 12] = [27, 27, 28, 28, 29, 29, 30, 30, 0, 0, 0, 
 pub const RIGHT_DIG_DEBRIS: [u8; 12] = [38, 38, 39, 39, 29, 29, 30, 30, 0, 0, 0, 0];
 pub const DIG_BRICKS: [u8; 12] = [31, 31, 32, 32, 33, 33, 34, 34, 35, 35, 36, 36];
 
-// The assets encode two seven-bit planes through pattern indices. Decode their
-// unshifted ink once; drawing and contact share the resulting local geometry.
+// The build converts reference sprites to unshifted native ink rows. Drawing
+// and contact share this geometry while the timing model retains sprite IDs.
 pub fn sprite_rows(sprite: u8) -> [u16; 11] {
-    assert!(sprite < 102);
-    let patterns = usize::from(IMAGE[0x84c1]) << 8;
-    std::array::from_fn(|row| {
-        let mut pixels = 0;
-        for plane in 0..2 {
-            let pattern =
-                usize::from(IMAGE[0xad00 + (row * 2 + plane) * 104 + usize::from(sprite)]);
-            let address = usize::from(IMAGE[patterns + pattern])
-                | usize::from(IMAGE[patterns + 0x80 + pattern]) << 8;
-            let ink = u16::from(IMAGE[address] & 0x7f) | u16::from(IMAGE[address + 1] & 0x7f) << 7;
-            pixels |= ink << (plane * 7);
-        }
-        assert!(pixels < 1024);
-        pixels
-    })
+    SPRITE_ROWS[usize::from(sprite)]
 }
 
 impl Game {

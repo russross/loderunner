@@ -1,5 +1,4 @@
 use crate::event_timing::{SoundSection, TimingEvent};
-use crate::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
 use crate::player::Journal;
 use crate::sound::play_note;
 use crate::state::Game;
@@ -98,14 +97,8 @@ impl Game {
                 hole.remaining = timer;
                 self.holes.entries[slot] = Some(hole);
                 if matches!(remaining, 20 | 10) {
-                    draw_sprite(
-                        &mut self.hires,
-                        1,
-                        if remaining == 20 { 0x37 } else { 0x38 },
-                        col,
-                        row,
-                    );
-                    erase_sprite_at_pixels(&mut self.hires, 0, col * 5, row * 11);
+                    self.paint_tile(1, if remaining == 20 { 0x37 } else { 0x38 }, col, row);
+                    self.erase_shape(0, col * 5, row * 11);
                 }
                 continue;
             }
@@ -114,8 +107,8 @@ impl Game {
                 Tile::Guard => {
                     self.board.occupy(hole.cell, Tile::Brick);
                     self.board.terrain[usize::from(row) * 28 + usize::from(col)] = Tile::Brick;
-                    draw_sprite(&mut self.hires, 0, 1, col, row);
-                    draw_sprite(&mut self.hires, 1, 1, col, row);
+                    self.paint_tile(0, 1, col, row);
+                    self.paint_tile(1, 1, col, row);
                     self.bury_guard(hole.cell, journal)?;
                     continue;
                 }
@@ -132,8 +125,8 @@ impl Game {
                 _ => (),
             }
             self.board.occupy(hole.cell, Tile::Brick);
-            draw_sprite(&mut self.hires, 0, 1, col, row);
-            draw_sprite(&mut self.hires, 1, 1, col, row);
+            self.paint_tile(0, 1, col, row);
+            self.paint_tile(1, 1, col, row);
         }
         Ok(())
     }
@@ -152,8 +145,8 @@ impl Game {
             if self.board.at(cell) == Tile::Empty {
                 self.board.occupy(cell, Tile::Ladder);
             }
-            draw_sprite(&mut self.hires, 1, 3, cell.col, cell.row);
-            draw_sprite_at_pixels(&mut self.hires, 3, cell.col * 5, cell.row * 11);
+            self.paint_tile(1, 3, cell.col, cell.row);
+            self.overlay_shape(3, cell.col * 5, cell.row * 11);
             self.hidden_ladders.remove(slot);
         }
         if !blocked {

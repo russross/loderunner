@@ -2,7 +2,7 @@ use lode_port::devices::hires::Hires;
 use lode_port::devices::keyboard::Keyboard;
 use lode_port::devices::speaker::Speaker;
 use lode_port::event_timing::{Model, TimingInterval};
-use lode_port::graphics::{draw_sprite_at_pixels, erase_sprite_at_pixels, row_address};
+use lode_port::graphics::{erase_sprite_at_pixels, overlay_sprite_at_pixels, row_address};
 use lode_port::sound::{Note, Sound, play_note};
 use lode_port::timing::Clock;
 use lode_trace::Phase;
@@ -48,12 +48,22 @@ fn keyboard_acknowledgement_retains_code_and_repeated_delivery_is_available() {
 }
 
 #[test]
-fn collision_is_reported_on_repeated_draw_and_erasure_restores_background() {
+fn repeated_overlay_is_idempotent_and_erasure_restores_background() {
     let mut hires = Hires::default();
-    assert_eq!(draw_sprite_at_pixels(&mut hires, 9, 50, 55), 0);
-    assert_ne!(draw_sprite_at_pixels(&mut hires, 9, 50, 55), 0);
+    overlay_sprite_at_pixels(&mut hires, 9, 50, 55);
+    let first: Vec<_> = (0x2000..0x4000)
+        .map(|address| hires.read(address))
+        .collect();
+    assert!(first.iter().any(|&byte| byte != 0x80));
+    overlay_sprite_at_pixels(&mut hires, 9, 50, 55);
+    assert_eq!(
+        first,
+        (0x2000..0x4000)
+            .map(|address| hires.read(address))
+            .collect::<Vec<_>>()
+    );
     erase_sprite_at_pixels(&mut hires, 9, 50, 55);
-    assert_eq!(draw_sprite_at_pixels(&mut hires, 9, 50, 55), 0);
+    assert!((0x2000..0x4000).all(|address| hires.read(address) == 0x80));
 }
 
 #[test]

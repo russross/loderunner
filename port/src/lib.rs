@@ -2,6 +2,7 @@
 
 pub mod actors;
 pub mod board;
+pub mod collision;
 pub mod devices;
 pub mod event_timing;
 pub mod graphics;

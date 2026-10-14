@@ -1,9 +1,9 @@
 use crate::actors::{Command, DigSide, Guard, GuardId, GuardMode, GuardSchedule, Player, Position};
 use crate::board::{Board, Holes};
+use crate::collision::Scene;
 use crate::devices::hires::Hires;
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
-use crate::graphics::{draw_sprite, draw_sprite_at_pixels};
 use crate::score::Score;
 use crate::sound::Sound;
 use crate::storage::decode_level;
@@ -30,6 +30,7 @@ pub struct Game {
     pub high_scores: Vec<lode_trace::HighScore>,
     pub eligible_for_score: bool,
     pub hires: Hires,
+    pub contacts: Scene,
     pub keyboard: Keyboard,
     pub speaker: Speaker,
     pub sound: Sound,
@@ -81,6 +82,7 @@ impl Game {
             high_scores: Vec::new(),
             eligible_for_score: true,
             hires: Hires::default(),
+            contacts: Scene::default(),
             keyboard: Keyboard::default(),
             speaker: Speaker::default(),
             sound: Sound::default(),
@@ -121,8 +123,7 @@ impl Game {
                 _ => (),
             }
             for (page, tile) in [(0, game.board.cells[index]), (1, game.board.terrain[index])] {
-                draw_sprite(
-                    &mut game.hires,
+                game.paint_tile(
                     page,
                     if tile == Tile::Trap { 1 } else { tile as u8 },
                     cell.col,
@@ -131,7 +132,7 @@ impl Game {
             }
         }
         let (sprite, x, y) = game.player_sprite_coordinates();
-        draw_sprite_at_pixels(&mut game.hires, sprite, x, y);
+        game.overlay_shape(sprite, x, y);
         game.put_status();
         Ok(game)
     }

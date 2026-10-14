@@ -69,9 +69,8 @@ pub fn draw_sprite(hires: &mut Hires, page: usize, sprite: u8, col: u8, row: u8)
     }
 }
 
-// Actor drawing reports the original foreground/background overlap bits before
-// merging the sprite. The caller applies gameplay's gold-pickup exception.
-pub fn draw_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) -> u8 {
+// Rendering merges actor ink without making gameplay contact decisions.
+pub fn overlay_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) {
     let byte = IMAGE[0x1c9a + usize::from(half_x)];
     let shift = IMAGE[0x1d26 + usize::from(half_x)];
     let block = compute_shifted_sprite(sprite, shift);
@@ -83,18 +82,13 @@ pub fn draw_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) -
         y,
         shift,
     });
-    let mut overlap = 0;
     for (line, pixels) in block.as_chunks::<3>().0.iter().enumerate() {
         let address = row_address(0, y + line as u8) + u16::from(byte);
         for (column, &bits) in pixels.iter().take(width).enumerate() {
             let address = address + column as u16;
-            let foreground = hires.read(address);
-            let background = hires.read(address + 0x2000);
-            overlap |= (foreground ^ background) & bits;
-            hires.write(address, foreground | bits);
+            hires.write(address, hires.read(address) | bits);
         }
     }
-    overlap
 }
 
 pub fn erase_sprite_at_pixels(hires: &mut Hires, sprite: u8, half_x: u8, y: u8) {

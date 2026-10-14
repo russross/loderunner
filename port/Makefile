@@ -23,3 +23,7 @@ test-equivalence:
 .PHONY: test-timing
 test-timing:
 	cargo test -p lode-port --test event_timing --test devices --test equivalence
+
+.PHONY: test-collision
+test-collision:
+	cargo test -p lode-port --test collision -- --nocapture

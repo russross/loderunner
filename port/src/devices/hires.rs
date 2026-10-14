@@ -93,7 +93,7 @@ impl Hires {
         self.dirty[self.selected].fill(false);
     }
 
-    // This digital artifact decoder preserves the original bit plane for collision.
+    // This digital artifact decoder reads the original packed bit plane.
     // Isolated alternating patterns produce color; adjacent set bits produce white.
     pub fn rgb_row(&self, row: usize) -> Vec<u8> {
         let bytes = &self.pages[self.selected][Self::row_offset(row)..Self::row_offset(row) + 40];

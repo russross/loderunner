@@ -1,10 +1,7 @@
 use crate::actors::{Command, DigSide, Digging, Direction};
 use crate::board::Board;
 use crate::event_timing::TimingEvent;
-use crate::graphics::{
-    DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS, draw_sprite, draw_sprite_at_pixels,
-    erase_sprite_at_pixels,
-};
+use crate::graphics::{DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS};
 use crate::sound::{DIG_NOTES, Note, play_note};
 use crate::state::Game;
 use lode_trace::{ActorId, Cell, Facing, Input, Motion, Occurrence, Phase, Subject, Tile};
@@ -134,13 +131,14 @@ impl Game {
 
     pub fn erase_player(&mut self) {
         let (sprite, x, y) = self.player_sprite_coordinates();
-        erase_sprite_at_pixels(&mut self.hires, sprite, x, y);
+        self.erase_shape(sprite, x, y);
     }
     pub fn draw_player(&mut self) {
         self.clock.events.add(TimingEvent::PlayerDraw, 1);
         let (sprite, x, y) = self.player_sprite_coordinates();
-        let overlap = draw_sprite_at_pixels(&mut self.hires, sprite, x, y);
-        if overlap != 0 && !self.player.collected_gold {
+        let contact = self.contacts.contact(sprite, x, y);
+        self.overlay_shape(sprite, x, y);
+        if contact && !self.player.collected_gold {
             self.player.alive = false;
         }
     }
@@ -156,7 +154,7 @@ impl Game {
         self.score.add(points);
         self.session.score = self.score.decimal();
         for (index, digit) in self.score.visible_digits().into_iter().enumerate() {
-            draw_sprite(&mut self.hires, 0, 0x3b + digit, 5 + index as u8, 16);
+            self.paint_tile(0, 0x3b + digit, 5 + index as u8, 16);
         }
     }
 
@@ -172,8 +170,8 @@ impl Game {
         self.gold_count = self.gold_count.wrapping_sub(1);
         self.board.terrain[Board::index(position.cell)] = Tile::Empty;
         let Cell { col, row } = position.cell;
-        draw_sprite(&mut self.hires, 1, 0, col, row);
-        erase_sprite_at_pixels(&mut self.hires, 7, col * 5, row * 11);
+        self.paint_tile(1, 0, col, row);
+        self.erase_shape(7, col * 5, row * 11);
         self.add_score(250);
         self.sound.load_sound_data(&[
             Note {
@@ -357,14 +355,9 @@ impl Game {
             DigSide::Right => &RIGHT_DIG_DEBRIS,
         };
         if self.board.at(adjacent) != Tile::Empty {
-            draw_sprite(&mut self.hires, 0, 1, hole.col, hole.row);
+            self.paint_tile(0, 1, hole.col, hole.row);
             if dig.stage() != 0 {
-                erase_sprite_at_pixels(
-                    &mut self.hires,
-                    debris[stage - 1],
-                    adjacent.col * 5,
-                    cell.row * 11,
-                );
+                self.erase_shape(debris[stage - 1], adjacent.col * 5, cell.row * 11);
             }
             self.player.digging = None;
             return Ok(());
@@ -385,20 +378,10 @@ impl Game {
             return Ok(());
         }
         if dig.stage() != 0 {
-            erase_sprite_at_pixels(
-                &mut self.hires,
-                debris[stage - 1],
-                adjacent.col * 5,
-                cell.row * 11,
-            );
+            self.erase_shape(debris[stage - 1], adjacent.col * 5, cell.row * 11);
         }
-        draw_sprite_at_pixels(
-            &mut self.hires,
-            debris[stage],
-            adjacent.col * 5,
-            cell.row * 11,
-        );
-        draw_sprite(&mut self.hires, 0, DIG_BRICKS[stage], hole.col, hole.row);
+        self.overlay_shape(debris[stage], adjacent.col * 5, cell.row * 11);
+        self.paint_tile(0, DIG_BRICKS[stage], hole.col, hole.row);
         dig.advance();
         self.player.digging = Some(dig);
         Ok(())
@@ -407,9 +390,9 @@ impl Game {
     fn open_hole(&mut self, cell: Cell) {
         self.player.digging = None;
         self.board.occupy(cell, Tile::Empty);
-        draw_sprite(&mut self.hires, 0, 0, cell.col, cell.row);
-        draw_sprite(&mut self.hires, 1, 0, cell.col, cell.row);
-        draw_sprite(&mut self.hires, 0, 0, cell.col, cell.row - 1);
+        self.paint_tile(0, 0, cell.col, cell.row);
+        self.paint_tile(1, 0, cell.col, cell.row);
+        self.paint_tile(0, 0, cell.col, cell.row - 1);
         self.holes.open(cell);
     }
 }

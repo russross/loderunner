@@ -1,7 +1,7 @@
 Object-level collision analysis
 ===============================
 
-The native port currently has two independent contact mechanisms. Logical occupancy detects a guard entering a player cell and a closing hole containing the player. Player redraw detects foreground differences intersecting the new player sprite. Replacing the latter with ordinary actor bounding boxes changes behavior. A compact sprite-shape predicate is possible, but using only current actor poses does not describe every state accepted by the existing graphics operations.
+The native port has two independent contact mechanisms. Logical occupancy detects a guard entering a player cell and a closing hole containing the player. Player redraw queries a local shape-composition scene, independently of rendering. The unchanged `port-original` supplies the packed-framebuffer reference detector. The native model retains background and contrast shapes per local cell, rather than trying to assign every surviving pixel to an actor. This captures contact-relevant history without scanline addresses, color phases, or a table of animation-pair outcomes.
 
 
 When contact is evaluated
@@ -47,18 +47,48 @@ A concrete shape-level counterexample uses old player sprite 9, new player sprit
 
 For an intact opponent against synchronized terrain, the effective shape is its silhouette minus background pixels. With overlapping erasures, it is the surviving silhouette minus background pixels. Current GuardMode alone cannot express that shape: Roaming, Carrying, and Trapped actors can have partially erased pixels. Resurrection is especially unsuitable for automatic actor contact: its stage image is put on both pages, and no ordinary guard update runs until spawning.
 
-The recommended concrete types are `CollisionShape(u128)`, `CollisionPose { shape, x, y }`, and, only if reachable cases require it, per-object surviving-shape state. A Game-owned contact component would receive actor draw/erase and terrain-transition operations explicitly, independently of Hires. It would query nearby effective objects only at the current player-draw boundary. Player suppression, logical guard entry, and hole closure remain gameplay decisions. No trait or interchangeable collision backend is needed.
-
-Per-object surviving shapes alone are not yet a proven complete model. Multiple overlapping objects, changes beneath them, and foreground deficits need an explicit ownership/composition rule. Simply clearing erased bits in all nearby objects may explain extra pixels, but does not by itself explain every foreground/background difference. Introducing an object mask scene without resolving that rule would conceal the same assumption behind higher-level types.
+Per-object surviving shapes do not provide a simple complete model. A pixel can have contributions from several actors and terrain, erasure deliberately ignores ownership, and background replacement can create contrast without any actor occupying that location. Assigning such differences to a synthetic actor would add bookkeeping without improving the contact decision. The implemented scene instead partitions space into fixed ten-by-eleven local cells and aggregates contact-relevant history there.
 
 
-Replacement and validation boundary
------------------------------------
+Exact local composition
+-----------------------
 
-First run the compact predicate alongside the existing detector at every actual player draw. Compare three candidates separately: intact actor shapes, shapes masked by current background, and surviving shapes updated through relevant operations. Classify mismatches by actor overlap, player self-erasure, gold, digging/debris, refill, resurrection, and exit revealing. Use forced original-machine fixtures as well as native differential traces to establish which operation-level cases are reachable. Keep the old detector authoritative during this investigation.
+`port/src/collision.rs` defines `Shape(u128)` and `Scene`. Each local cell stores background shape `B` and contrast shape `D = F XOR B`; `F` denotes visible foreground ink only for the derivation. Actual foreground is not a stored third layer. Both extra foreground and missing background are represented by `D`. Sprite geometry is decoded once from the shared assets and cached; gameplay, text, and transitions use sprites zero through 101. Image entries 102 and 103 have wider data and remain supported only by the packed renderer, as they are not used by gameplay.
 
-The reference comparison must occur after player erasure and terrain/gold updates but before the new player pixels are merged. Tests must include adjacent cells with subcell offsets, both facings and every animation, multiple nearby guards, guard support/falling, trap shaking/escape, foreground debris, refill stage transitions, resurrection stages, and gold-pickup suppression. Full packed-page equality remains a rendering check; collision equality additionally checks the exact draw boundary and resulting death/contact trace. Synthetic shape tests cannot substitute for these round-level checks.
+The following rules operate on translated whole shapes, not rows. `S` is incoming sprite ink, `R` is the affected rectangular area, and expressions apply inside `R`; everything outside remains unchanged.
 
-After mismatch analysis, retain only state proven necessary and switch the player contact decision to the object query. Rendering can continue unchanged initially. Preserve the existing `PlayerDraw` and graphics Draw timing events, including sprite and alignment inputs: those describe work performed by the original machine, regardless of how cheaply Rust now decides contact. Object-pair tests must not become extra modeled original work. Existing cycle estimates and speaker timing should remain identical for identical gameplay events.
+| Operation              | New contrast                         | New background |
+| ---------------------- | ------------------------------------ | -------------- |
+| Test contact           | `D AND S != 0`                       | unchanged      |
+| Overlay                | `(D AND NOT S) OR (S AND NOT B)`      | unchanged      |
+| Erase and restore      | `D AND NOT (S OR B)`                  | unchanged      |
+| Replace foreground     | `S XOR B`                            | unchanged      |
+| Replace background     | `D XOR B XOR S`                      | `S`            |
 
-No gameplay detector has been replaced by this analysis. The compact geometric predicate is established; fidelity of a pose-only or surviving-shape gameplay model remains to be measured.
+These identities follow directly by substituting `F = D XOR B` into the reference operations. They give an inductive correspondence after arbitrary mixtures of overlays, erasures, and replacements; no assumption that actors remain intact or foreground contains background is required. Clearing background is background replacement with an empty shape. Closing or opening a hole replaces both layers in the original order. Partial actor erasure, overlapping guards, debris, gold, refill, resurrection, and exit revealing need no individual collision exceptions.
+
+For overlay and contact, the region is the incoming ten-by-eleven bounding rectangle. A legal player query touches at most four local cells and performs one translated-shape intersection per cell, stopping at the first contact. Tile replacement affects its ten-by-eleven rectangle. For erasure, restoration extends over the enclosing fourteen or twenty-one pixels aligned to seven-pixel groups. The eraser silhouette is still ten pixels wide; the wider region restores missing background even where that silhouette has no ink. This detail is necessary for fidelity and remains one explicit geometric rule.
+
+The scene covers all 192 visible rows using 28 columns and 18 local cell rows; the last row is partially used. The status border occupies rows 176 through 179, while text in logical row 16 starts at pixel row 181. Actor ink spilling beyond the right edge can reach the first pixels 64 rows below; a short coordinate translation preserves that visible effect. Spill originating at row 128 or lower reaches unused storage, which cannot affect a legal player query. The scene does not retain that unused storage; the packed renderer still does. Wrapped coordinates that the existing renderer rejects are outside the model's validated domain; this work does not change that existing boundary behavior.
+
+Game owns the scene alongside Hires. `paint_tile`, `overlay_shape`, and `erase_shape` feed the same ordered appearance operations to both, but neither reconstructs its state by reading the other. Status-border writes and background clearing update both explicitly. Player contact is queried after old-player erasure and collection/terrain updates, before the new sprite is overlaid. Gold suppression and logical guard/hole contact stay in their original gameplay paths. Initialization overlays the player without evaluating lethal contact.
+
+The native renderer no longer computes overlap. The reference detector lives in the unchanged baseline and is used by tests. Timing journals preserve the same `PlayerDraw` and Draw records, including sprite, position and shift inputs. Those records describe original-machine work; shape-composition operations add no timing-model factors. No production dependency on the baseline or extra collision interface is introduced.
+
+
+Experiments and validation
+-------------------------
+
+Run `make -C port test-collision` to reproduce the persistent study. It includes all 114,912 intact animation-pair intersections, explicit erasure/background/status/right-edge cases, 30,000 deterministic mixed operations with reference contact probes, and an extended differential execution on all 150 boards. The mixed-operation test deliberately replaces either layer independently, clears background, overlays arbitrary supported shapes, and erases arbitrary shapes, so it exercises deficits and damaged overlaps beyond ordinary terrain/actor unions.
+
+The extended execution runs 180 intervals per board, cycling seven commands every fifteen intervals, for 27,000 actual intervals. Native state, logical trace rounds, packed pages and calibrated gameplay costs match the baseline. Before each interval, it also copies the independently executed baseline display, erases the old player in both the scene and reference, and probes the retained animation at three nearby horizontal poses. These are 81,000 forced probes of reached states; the proposed poses are not claimed to be naturally executed movements or deaths.
+
+| Candidate                              | Disagreements with reference |
+| -------------------------------------- | ---------------------------- |
+| Intact guard poses                     | 857                          |
+| Intact guard poses masked by background | 795                          |
+| Background/contrast scene              | 0                            |
+
+The background-masked candidate produced 560 false contacts and 235 missed contacts. Thus masking intact actors by terrain does not resolve the problem in either direction. The scene exactly matched the reference in all mixed-operation probes as well. These results favor retaining two local masks over adding pose-specific exceptions; no minimal exception list has been established or needed.
+
+The existing 90-interval schedule on all 150 boards also passes, giving another 13,500 intervals with exact state, calibrated gameplay costs and all packed bytes. Lifecycle coverage includes both dig sequences, refill, guard burial/resurrection, menus, reloads and retained guard state. All seven MAME validation groups pass with the new detector active, including selected original boards, airborne deaths/restarts, digging/refill, burial/resurrection, controls and session transitions. This does not establish exhaustive original-machine equivalence on every supported pose or board. Host collision speed has not been benchmarked; the established change is a bounded whole-shape query with no framebuffer reads or row loop.

@@ -2,7 +2,7 @@ use lode_original::session::{Configuration as OriginalConfiguration, Run as Orig
 use lode_port::devices::speaker::Speaker;
 use lode_port::event_timing::{Model, TimingInterval};
 use lode_port::graphics::{
-    compute_shifted_sprite, draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels,
+    compute_shifted_sprite, draw_sprite, erase_sprite_at_pixels, overlay_sprite_at_pixels,
 };
 use lode_port::session::{Configuration, Run};
 use lode_port::sound::play_note;
@@ -97,10 +97,11 @@ fn sprite_shifts_and_draw_erase_match_original_packed_graphics() {
     ] {
         draw_sprite(&mut new, 1, sprite, col, row);
         lode_original::graphics::draw_sprite(&mut old, 1, sprite, col, row);
-        assert_eq!(
-            draw_sprite_at_pixels(&mut new, sprite, col * 5, row * 11),
-            lode_original::graphics::draw_sprite_at_pixels(&mut old, sprite, col * 5, row * 11)
-        );
+        overlay_sprite_at_pixels(&mut new, sprite, col * 5, row * 11);
+        lode_original::graphics::draw_sprite_at_pixels(&mut old, sprite, col * 5, row * 11);
+        for address in 0x2000..0x6000 {
+            assert_eq!(new.read(address), old.read(address));
+        }
         erase_sprite_at_pixels(&mut new, sprite, col * 5, row * 11);
         lode_original::graphics::erase_sprite_at_pixels(&mut old, sprite, col * 5, row * 11);
     }

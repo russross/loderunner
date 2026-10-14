@@ -124,13 +124,6 @@ impl Events {
         *self.counts.entry(event).or_default() += count;
     }
 
-    pub fn merge(&mut self, other: Self) {
-        for (event, count) in other.counts {
-            self.add(event, count);
-        }
-        self.work.extend(other.work);
-    }
-
     pub fn count(&self, event: TimingEvent) -> u64 {
         self.counts.get(&event).copied().unwrap_or(0)
     }

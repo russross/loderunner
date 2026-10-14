@@ -45,12 +45,6 @@ impl Clock {
         std::mem::take(&mut self.events)
     }
 
-    pub fn append_initialization(&mut self, other: &mut Self) {
-        self.flush_draws();
-        self.events.merge(std::mem::take(&mut other.events));
-        self.pending_draws.append(&mut other.pending_draws);
-    }
-
     // The model commits a complete interval before audio submission and pacing.
     // Gameplay operations accumulate events without changing the shared clock.
     pub fn commit(&mut self, model: &Model, interval: &TimingInterval, speaker: &mut Speaker) {

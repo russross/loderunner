@@ -19,7 +19,7 @@ pub struct Game {
     pub guard_schedule: GuardSchedule,
     pub holes: Holes,
     pub hidden_ladders: Vec<Cell>,
-    pub session: Session,
+    pub session: Progress,
     pub score: Score,
     pub gold_count: u8,
     pub falling_sound: bool,
@@ -35,6 +35,29 @@ pub struct Game {
     pub speaker: Speaker,
     pub sound: Sound,
     pub clock: Clock,
+    guard_facings: [Facing; 5],
+}
+
+// Session progress survives board loading. Score has one authoritative decimal
+// value in Game and is included in the external session only when observed.
+pub struct Progress {
+    pub level: u8,
+    pub attempt: u32,
+    pub phase: Phase,
+    pub lives: u8,
+    pub exit_available: bool,
+}
+
+impl Progress {
+    pub fn new(level: u8) -> Self {
+        Self {
+            level,
+            attempt: 0,
+            phase: Phase::Playing,
+            lives: 5,
+            exit_available: false,
+        }
+    }
 }
 
 impl Game {
@@ -64,14 +87,7 @@ impl Game {
             guard_schedule: GuardSchedule::default(),
             holes: Holes::default(),
             hidden_ladders: Vec::new(),
-            session: Session {
-                level,
-                attempt: 0,
-                phase: Phase::Playing,
-                score: 0,
-                lives: 5,
-                exit_available: false,
-            },
+            session: Progress::new(level),
             score: Score::default(),
             gold_count: 0,
             falling_sound: false,
@@ -87,8 +103,54 @@ impl Game {
             speaker: Speaker::default(),
             sound: Sound::default(),
             clock: Clock::new(paced),
+            guard_facings: [Facing::Right; 5],
         };
+        game.populate_board();
+        Ok(game)
+    }
 
+    // Loading replaces board-local state in place. The clock, speaker, score,
+    // preferences and falling whistle keep their identities and pending work.
+    pub fn reload_board(&mut self, record: &[u8; 256]) -> Result<(), String> {
+        let tiles = decode_level(record);
+        let index = tiles
+            .iter()
+            .rposition(|&tile| tile == Tile::Player)
+            .ok_or("level contains no player")?;
+        self.clock.flush_draws();
+        for guard in &self.guards {
+            self.guard_facings[guard.id.index()] = guard.facing;
+        }
+        self.board = Board::new(tiles);
+        self.player = Player {
+            position: Position::centered(Cell {
+                col: (index % 28) as u8,
+                row: (index / 28) as u8,
+            }),
+            animation: 8,
+            facing: self.player.facing,
+            motion: Motion::Standing,
+            digging: None,
+            command: Command::Stop,
+            alive: true,
+            collected_gold: false,
+        };
+        self.guards.clear();
+        self.guard_schedule.restart_roster();
+        self.holes = Holes::default();
+        self.hidden_ladders.clear();
+        self.gold_count = 0;
+        self.skip_level = false;
+        self.keyboard = Keyboard::default();
+        self.sound.clear();
+        self.scene = Scene::default();
+        self.display = Display::default();
+        self.session.exit_available = false;
+        self.populate_board();
+        Ok(())
+    }
+
+    fn populate_board(&mut self) {
         // Reverse board traversal determines actor identities and which markers
         // survive an overfull board. Rendering follows that same cell order.
         for index in (0..448).rev() {
@@ -96,37 +158,39 @@ impl Game {
                 col: (index % 28) as u8,
                 row: (index / 28) as u8,
             };
-            match game.board.cells[index] {
+            match self.board.cells[index] {
                 Tile::HiddenLadder => {
-                    if game.hidden_ladders.len() < 45 {
-                        game.hidden_ladders.push(cell);
+                    if self.hidden_ladders.len() < 45 {
+                        self.hidden_ladders.push(cell);
                     }
-                    game.board.cells[index] = Tile::Empty;
-                    game.board.terrain[index] = Tile::Empty;
+                    self.board.cells[index] = Tile::Empty;
+                    self.board.terrain[index] = Tile::Empty;
                 }
-                Tile::Gold => game.gold_count = game.gold_count.wrapping_add(1),
+                Tile::Gold => self.gold_count = self.gold_count.wrapping_add(1),
                 Tile::Guard => {
-                    if game.guards.len() == 5 {
-                        game.board.cells[index] = Tile::Empty;
+                    if self.guards.len() == 5 {
+                        self.board.cells[index] = Tile::Empty;
                     } else {
-                        game.guards
-                            .push(Guard::new(GuardId::for_index(game.guards.len()), cell));
+                        let id = GuardId::for_index(self.guards.len());
+                        let mut guard = Guard::new(id, cell);
+                        guard.facing = self.guard_facings[id.index()];
+                        self.guards.push(guard);
                     }
-                    game.board.terrain[index] = Tile::Empty;
+                    self.board.terrain[index] = Tile::Empty;
                 }
                 Tile::Player => {
-                    if cell != game.player.position.cell {
-                        game.board.cells[index] = Tile::Empty;
+                    if cell != self.player.position.cell {
+                        self.board.cells[index] = Tile::Empty;
                     }
-                    game.board.terrain[index] = Tile::Empty;
+                    self.board.terrain[index] = Tile::Empty;
                 }
                 _ => (),
             }
             for (layer, tile) in [
-                (Layer::Foreground, game.board.cells[index]),
-                (Layer::Background, game.board.terrain[index]),
+                (Layer::Foreground, self.board.cells[index]),
+                (Layer::Background, self.board.terrain[index]),
             ] {
-                game.paint_tile(
+                self.paint_tile(
                     layer,
                     if tile == Tile::Trap { 1 } else { tile as u8 },
                     cell.col,
@@ -134,10 +198,9 @@ impl Game {
                 );
             }
         }
-        let (sprite, x, y) = game.player_sprite_coordinates();
-        game.overlay_shape(sprite, x, y);
-        game.put_status();
-        Ok(game)
+        let (sprite, x, y) = self.player_sprite_coordinates();
+        self.overlay_shape(sprite, x, y);
+        self.paint_status(self.session.level, 5, Score::default());
     }
 
     pub fn player_sprite_coordinates(&self) -> (u8, u8, u8) {
@@ -205,7 +268,14 @@ impl Game {
         hidden_ladders.sort();
         Snapshot {
             high_scores: self.high_scores.clone(),
-            session: self.session.clone(),
+            session: Session {
+                level: self.session.level,
+                attempt: self.session.attempt,
+                phase: self.session.phase,
+                score: self.score.decimal(),
+                lives: self.session.lives,
+                exit_available: self.session.exit_available,
+            },
             actors,
             active: self.board.cells.to_vec(),
             background: self.board.terrain.to_vec(),

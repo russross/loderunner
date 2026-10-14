@@ -1,10 +1,10 @@
 use crate::actors::Command;
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
+use crate::score::Score;
 use crate::sound::Note;
-use crate::state::Game;
-use crate::storage::{LevelRecord, original_level};
-use lode_trace::Facing;
+use crate::state::{Game, Progress};
+use crate::storage::{LevelRecord, decode_level, original_level};
 use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Trace};
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,9 @@ impl Configuration {
             return Err("invalid session level configuration".into());
         }
         for record in &self.levels {
-            Game::load_level(&record.0, 1, false)?;
+            if !decode_level(&record.0).contains(&lode_trace::Tile::Player) {
+                return Err("level contains no player".into());
+            }
         }
         Ok(())
     }
@@ -58,7 +60,6 @@ pub struct Run {
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
     timing_model: Model,
-    guard_facings: [Facing; 5],
 }
 
 impl Run {
@@ -93,7 +94,6 @@ impl Run {
             last_timing: None,
             last_model_cycles: None,
             timing_model: Model::calibrated(),
-            guard_facings: [Facing::Right; 5],
         })
     }
 
@@ -257,61 +257,33 @@ impl Run {
     }
 
     fn reload(&mut self, new_game: bool) -> Result<(), String> {
-        let level = if new_game {
-            (self.configuration.start + 1) as u8
+        // A new game resets progress, while another attempt retains it. Board
+        // loading leaves preferences, device history and facing history in place.
+        if new_game {
+            self.game.session = Progress::new((self.configuration.start + 1) as u8);
+            self.game.score = Score::default();
+            self.game.difficulty = 0;
+            self.game.resurrection_col = 0;
+            self.game.eligible_for_score = true;
         } else {
-            self.game.session.level
-        };
-        let mut next =
-            Game::load_level(&self.configuration.levels[self.level_index].0, level, false)?;
-        // Preserve pending work before replacing the board's devices. New board
-        // rendering follows transition sound in the interval journal.
-        self.game.clock.append_initialization(&mut next.clock);
-        std::mem::swap(&mut next.clock, &mut self.game.clock);
-        std::mem::swap(&mut next.speaker, &mut self.game.speaker);
-        // Level loading replaces positions and animations but retains direction
-        // flags, including when a new game follows the game-over screen.
-        next.player.facing = self.game.player.facing;
-        for guard in &self.game.guards {
-            self.guard_facings[guard.id.index()] = guard.facing;
+            self.game.session.attempt += 1;
         }
-        for guard in &mut next.guards {
-            guard.facing = self.guard_facings[guard.id.index()];
-        }
-        next.guard_schedule.retain_phase(self.game.guard_schedule);
-        // Falling sound carries into the next board until supported movement
-        // consumes the pending landing sound and resets its pitch counter.
-        next.falling_pitch = self.game.falling_pitch;
-        next.falling_sound = self.game.falling_sound;
-        if !new_game {
-            next.session = self.game.session.clone();
-            next.session.attempt += 1;
-            next.session.exit_available = false;
-            next.score = self.game.score;
-            next.difficulty = self.game.difficulty;
-            next.resurrection_col = self.game.resurrection_col;
-        }
-        next.sound.enabled = self.game.sound.enabled;
-        next.high_scores = self.game.high_scores.clone();
-        if !new_game {
-            next.eligible_for_score = self.game.eligible_for_score;
-        }
-        next.sound.frame_period = self.game.sound.frame_period;
-        next.session.phase = if self.configuration.wait_on_level_start {
+        self.game
+            .reload_board(&self.configuration.levels[self.level_index].0)?;
+        self.game.session.phase = if self.configuration.wait_on_level_start {
             Phase::Waiting
         } else {
             Phase::Playing
         };
-        self.game = next;
         self.game.put_status();
         Ok(())
     }
 
     fn qualify_high_score(&mut self) {
-        if !self.game.eligible_for_score || self.game.session.score == 0 {
+        if !self.game.eligible_for_score || self.game.score.decimal() == 0 {
             return;
         }
-        let rank = (self.game.session.level, self.game.session.score);
+        let rank = (self.game.session.level, self.game.score.decimal());
         let index = self
             .game
             .high_scores

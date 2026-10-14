@@ -79,6 +79,10 @@ impl Default for Sound {
 }
 
 impl Sound {
+    pub fn clear(&mut self) {
+        self.notes.clear();
+    }
+
     pub fn len(&self) -> usize {
         self.notes.len()
     }

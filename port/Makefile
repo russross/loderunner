@@ -1,12 +1,15 @@
-.PHONY: all fmt lint test check mostlyclean clean
+.PHONY: all format fmt lint test check mostlyclean clean
+TEST_ARGS ?=
 all:
 	cargo build -p lode-port
+format:
+	cargo fmt -p lode-port
 fmt:
 	cargo fmt -p lode-port --check
 lint:
 	cargo clippy -p lode-port --all-targets -- -D warnings
 test:
-	cargo test -p lode-port
+	cargo test -p lode-port $(TEST_ARGS)
 
 .PHONY: test-validation
 test-validation:

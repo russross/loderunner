@@ -262,7 +262,7 @@ impl GuardSchedule {
         self.cursor = index + 1;
         index
     }
-    pub fn retain_phase(&mut self, previous: Self) {
-        self.phase = previous.phase;
+    pub fn restart_roster(&mut self) {
+        self.cursor = 0;
     }
 }

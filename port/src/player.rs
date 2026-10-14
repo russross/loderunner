@@ -150,14 +150,6 @@ impl Game {
             self.player.animation = lower;
         }
     }
-    pub fn add_score(&mut self, points: u32) {
-        self.clock.events.add(TimingEvent::Score, 1);
-        self.score.add(points);
-        self.session.score = self.score.decimal();
-        for (index, digit) in self.score.visible_digits().into_iter().enumerate() {
-            self.paint_tile(Layer::Foreground, 0x3b + digit, 5 + index as u8, 16);
-        }
-    }
 
     // Collection is centered in both axes and suppresses overlap death for the
     // remaining player update. The actor still occupies the foreground cell.

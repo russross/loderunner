@@ -7,6 +7,10 @@ lint:
 	cargo clippy -p lode-port --all-targets -- -D warnings
 test:
 	cargo test -p lode-port
+
+.PHONY: test-validation
+test-validation:
+	cargo test -p lode-port --test cli live_validation_drains -- --include-ignored --test-threads=1
 check:
 	$(MAKE) fmt
 	$(MAKE) lint

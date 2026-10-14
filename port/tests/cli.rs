@@ -84,3 +84,35 @@ fn sdl_application_trace_reexecutes_without_sdl() {
         String::from_utf8_lossy(&replay.stderr)
     );
 }
+
+#[test]
+fn live_validation_requires_a_trace_destination() {
+    let files = Files::new("cli-validation-arguments");
+    let result = command(&files, &["play", "--validate-mame"]);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("requires --trace FILE"));
+}
+
+#[test]
+#[ignore = "requires MAME and Apple IIe enhanced ROMs"]
+fn live_validation_drains_the_final_interval_and_preserves_replay() {
+    let files = Files::new("cli-live-validation");
+    let result = command(
+        &files,
+        &[
+            "play",
+            "--validate-mame",
+            "--trace",
+            "live.json",
+            "--rounds",
+            "12",
+        ],
+    );
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout).contains("Validated 12 intervals"));
+    assert!(command(&files, &["replay", "live.json"]).status.success());
+}

@@ -409,6 +409,17 @@ impl Drop for Machine {
 }
 
 pub fn validate(expected: &Trace, options: &Options) -> Result<Report, String> {
+    validate_stream(expected, options, &mut || Ok(None))
+}
+
+/// Continue a trace with committed intervals supplied while the port runs.
+/// Each duration closes its interval; the snapshot makes the retained trace replayable.
+pub fn validate_stream(
+    initial: &Trace,
+    options: &Options,
+    next: &mut dyn FnMut() -> Result<Option<(Round, u64, Snapshot)>, String>,
+) -> Result<Report, String> {
+    let mut expected = initial.clone();
     expected.validate().map_err(|error| error.to_string())?;
     if expected.header.source != SOURCE {
         return Err("unsupported trace source identity".into());
@@ -460,7 +471,35 @@ pub fn validate(expected: &Trace, options: &Options) -> Result<Report, String> {
         Observer::new(expected.header.initial.clone()).map_err(|error| error.to_string())?;
     let mut previous = initial;
     let mut timing = Vec::new();
-    for (index, round) in expected.rounds.iter().enumerate() {
+    let mut index = 0;
+    loop {
+        if index == expected.rounds.len() {
+            let Some((round, duration, snapshot)) = next()? else {
+                break;
+            };
+            // Idle port time does not consume the machine-operation timeout.
+            machine.deadline = Instant::now() + options.timeout;
+            expected.rounds.push(round);
+            expected.final_delta = duration;
+            expected.final_state = snapshot;
+            expected.validate().map_err(|error| error.to_string())?;
+            fs::write(
+                machine.work.join("trace.json"),
+                expected.to_json().map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        let round = &expected.rounds[index];
+        if round.inputs.len() > 1
+            || round
+                .inputs
+                .first()
+                .is_some_and(|input| input.observation != 0 || input.key < 128)
+        {
+            return Err(format!(
+                "interval {index}: unsupported keyboard observations"
+            ));
+        }
         // Reexecute one interval from its input, then derive fresh changes from
         // machine observations rather than applying the submitted transitions.
         machine.command(
@@ -536,6 +575,7 @@ pub fn validate(expected: &Trace, options: &Options) -> Result<Report, String> {
             ));
         }
         previous = sample;
+        index += 1;
     }
     machine.finish(expected.rounds.len(), false)?;
     let completed: serde_json::Value = serde_json::from_slice(

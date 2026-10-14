@@ -5,6 +5,65 @@ use lode_trace::apple2::Sample;
 use lode_trace::{Change, Motion, Phase, Tile};
 use std::fs;
 
+#[test]
+#[ignore = "requires MAME and Apple IIe enhanced ROMs"]
+fn streamed_gameplay_matches_machine_through_the_final_interval() {
+    let mut run = Run::new(
+        configuration(vec![LevelRecord(original_level(1).unwrap())], false),
+        false,
+    )
+    .unwrap();
+    let initial = run.trace().unwrap();
+    let mut supplied = 0;
+    let report = lode_mame_validation::validate_stream(&initial, &Options::default(), &mut || {
+        if supplied == 20 {
+            return Ok(None);
+        }
+        run.step(match supplied {
+            0 => Some(0xcc),
+            10 => Some(0xa0),
+            12 => Some(0xd5),
+            _ => None,
+        })?;
+        supplied += 1;
+        Ok(run.validation_interval())
+    })
+    .unwrap();
+    assert_eq!(report.intervals, 20);
+    let retained =
+        lode_trace::Trace::from_json(&fs::read_to_string(report.work.join("trace.json")).unwrap())
+            .unwrap();
+    assert_eq!(retained, run.trace().unwrap());
+}
+
+#[test]
+#[ignore = "requires MAME and Apple IIe enhanced ROMs"]
+fn streamed_intervals_stop_at_the_first_timing_mismatch() {
+    let mut run = Run::new(
+        configuration(vec![LevelRecord(original_level(1).unwrap())], false),
+        false,
+    )
+    .unwrap();
+    let initial = run.trace().unwrap();
+    let mut supplied = 0;
+    let error = lode_mame_validation::validate_stream(&initial, &Options::default(), &mut || {
+        supplied += 1;
+        run.step(Some(0xcc))?;
+        let (round, _, snapshot) = run.validation_interval().unwrap();
+        Ok(Some((round, 1, snapshot)))
+    })
+    .unwrap_err();
+    assert_eq!(supplied, 1);
+    assert!(error.contains("interval 0: timing differs"), "{error}");
+    let work = error.split("inspect ").nth(1).unwrap();
+    assert!(std::path::Path::new(work).join("failure.sta").exists());
+    let trace = lode_trace::Trace::from_json(
+        &fs::read_to_string(std::path::Path::new(work).join("trace.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(trace.rounds.len(), 1);
+}
+
 fn board(tiles: &[(usize, usize, Tile)]) -> LevelRecord {
     let mut bytes = [0; 256];
     for &(col, row, tile) in tiles {

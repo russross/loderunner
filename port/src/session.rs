@@ -382,6 +382,17 @@ impl Run {
         Ok(trace)
     }
 
+    /// Publish only the newest committed interval without copying trace history.
+    pub fn validation_interval(&self) -> Option<(lode_trace::Round, u64, lode_trace::Snapshot)> {
+        self.rounds.last().map(|round| {
+            (
+                round.clone(),
+                self.game.clock.cycles - self.last_start,
+                self.game.snapshot(),
+            )
+        })
+    }
+
     pub fn last_timing(&self) -> Option<&TimingInterval> {
         self.last_timing.as_ref()
     }

@@ -57,6 +57,7 @@ dependencies = [
 name = "lode-port"
 version = "0.1.0"
 dependencies = [
+ "lode-mame-validation",
  "lode-original",
  "lode-trace",
  "sdl2",

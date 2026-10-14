@@ -1,3 +1,4 @@
+use lode_mame_validation::{Options, validate_stream};
 use lode_port::render::{HEIGHT, WIDTH};
 use lode_port::session::{Configuration, Run, replay};
 use lode_port::timing::{Clock, NTSC_CPU_HZ};
@@ -8,6 +9,8 @@ use sdl2::keyboard::{Keycode, Mod};
 use sdl2::pixels::PixelFormatEnum;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 enum Command {
@@ -16,6 +19,7 @@ enum Command {
         level: u8,
         trace: Option<PathBuf>,
         rounds: Option<usize>,
+        validate_mame: bool,
     },
     Capture {
         level: u8,
@@ -26,7 +30,7 @@ enum Command {
     Replay(PathBuf),
 }
 
-const USAGE: &str = "usage:\n  lode-port play [--level N] [--trace FILE] [--rounds N]\n  lode-port capture FILE [--level N] --rounds N [--input ROUND:HEXCODE]...\n  lode-port replay FILE\n  lode-port preview [N]";
+const USAGE: &str = "usage:\n  lode-port play [--level N] [--trace FILE] [--validate-mame] [--rounds N]\n  lode-port capture FILE [--level N] --rounds N [--input ROUND:HEXCODE]...\n  lode-port replay FILE\n  lode-port preview [N]";
 
 fn parse() -> Result<Command, String> {
     let mut args = std::env::args().skip(1);
@@ -61,7 +65,12 @@ fn parse() -> Result<Command, String> {
     let mut trace = None;
     let mut rounds = None;
     let mut inputs = Vec::new();
+    let mut validate_mame = false;
     while let Some(option) = args.next() {
+        if option == "--validate-mame" && command == "play" {
+            validate_mame = true;
+            continue;
+        }
         let value = args
             .next()
             .ok_or_else(|| format!("{option} requires a value"))?;
@@ -87,10 +96,14 @@ fn parse() -> Result<Command, String> {
             inputs,
         })
     } else {
+        if validate_mame && trace.is_none() {
+            return Err("--validate-mame requires --trace FILE".into());
+        }
         Ok(Command::Play {
             level,
             trace,
             rounds,
+            validate_mame,
         })
     }
 }
@@ -137,6 +150,7 @@ fn display(
     preview: bool,
     trace_path: Option<PathBuf>,
     limit: Option<usize>,
+    validate_mame: bool,
 ) -> Result<(), String> {
     let mut configuration = Configuration::original(level)?;
     let scores_path = PathBuf::from("highscores.json");
@@ -185,75 +199,130 @@ fn display(
     run.game.clock = Clock::new(!preview);
     let mut round = 0;
 
+    // A bounded queue permits validator lag without unlimited retained work.
+    // Closing the sender drains queued intervals and ends the stopped machine.
+    let (sender, worker) = if validate_mame {
+        let initial = run.trace()?;
+        let (sender, receiver) = mpsc::sync_channel(8);
+        let worker = thread::spawn(move || {
+            validate_stream(&initial, &Options::default(), &mut || {
+                Ok(receiver.recv().ok())
+            })
+        });
+        (Some(sender), Some(worker))
+    } else {
+        (None, None)
+    };
+
     // Events feed the original latch. Space supplies the stop code; release events
     // leave persistent keyboard commands intact. Audio is submitted before pacing.
-    'play: loop {
-        let mut delivery = None;
-        for event in events.poll_iter() {
-            match event {
-                Event::Window {
-                    win_event:
-                        WindowEvent::Exposed | WindowEvent::Resized(..) | WindowEvent::SizeChanged(..),
-                    ..
-                } => run.game.display.request_present(),
-                Event::Quit { .. } => break 'play,
-                Event::KeyDown {
-                    keycode: Some(Keycode::Q),
-                    keymod,
-                    ..
-                } if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) => break 'play,
-                Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } if preview => break 'play,
-                Event::KeyDown {
-                    keycode: Some(key),
-                    keymod,
-                    ..
-                } => delivery = key_code(key, keymod),
-                _ => (),
+    let play_result = (|| -> Result<(), String> {
+        'play: loop {
+            if worker.as_ref().is_some_and(|worker| worker.is_finished()) {
+                break;
+            }
+            let mut delivery = None;
+            for event in events.poll_iter() {
+                match event {
+                    Event::Window {
+                        win_event:
+                            WindowEvent::Exposed
+                            | WindowEvent::Resized(..)
+                            | WindowEvent::SizeChanged(..),
+                        ..
+                    } => run.game.display.request_present(),
+                    Event::Quit { .. } => break 'play,
+                    Event::KeyDown {
+                        keycode: Some(Keycode::Q),
+                        keymod,
+                        ..
+                    } if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) => break 'play,
+                    Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } if preview => break 'play,
+                    Event::KeyDown {
+                        keycode: Some(key),
+                        keymod,
+                        ..
+                    } => delivery = key_code(key, keymod),
+                    _ => (),
+                }
+            }
+            if !preview {
+                run.step_with_checkpoint(delivery, &mut |game| {
+                    let final_frame = (u128::from(game.clock.cycles) * u128::from(rate)
+                        / u128::from(NTSC_CPU_HZ)) as u64;
+                    let mut samples = game.speaker.sample_frames(
+                        sample_frame,
+                        (final_frame - sample_frame) as usize,
+                        rate,
+                        NTSC_CPU_HZ,
+                    );
+                    for sample in &mut samples {
+                        let output = *sample - previous_input + 0.995 * previous_output;
+                        previous_input = *sample;
+                        previous_output = output;
+                        *sample = output * 0.12;
+                    }
+                    queue.queue_audio(&samples)?;
+                    sample_frame = final_frame;
+                    game.speaker
+                        .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
+                    game.display
+                        .paint(&mut game.scene, &mut canvas, &mut texture)?;
+                    Ok(())
+                })?;
+                if let Some(sender) = &sender
+                    && sender
+                        .send(
+                            run.validation_interval()
+                                .ok_or("missing committed interval")?,
+                        )
+                        .is_err()
+                {
+                    break;
+                }
+            } else {
+                run.game
+                    .display
+                    .paint(&mut run.game.scene, &mut canvas, &mut texture)?;
+            }
+            round += 1;
+            if limit.is_some_and(|limit| round >= limit) {
+                break;
+            }
+            if preview {
+                std::thread::sleep(Duration::from_millis(10));
             }
         }
-        if !preview {
-            run.step_with_checkpoint(delivery, &mut |game| {
-                let final_frame = (u128::from(game.clock.cycles) * u128::from(rate)
-                    / u128::from(NTSC_CPU_HZ)) as u64;
-                let mut samples = game.speaker.sample_frames(
-                    sample_frame,
-                    (final_frame - sample_frame) as usize,
-                    rate,
-                    NTSC_CPU_HZ,
-                );
-                for sample in &mut samples {
-                    let output = *sample - previous_input + 0.995 * previous_output;
-                    previous_input = *sample;
-                    previous_output = output;
-                    *sample = output * 0.12;
-                }
-                queue.queue_audio(&samples)?;
-                sample_frame = final_frame;
-                game.speaker
-                    .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
-                game.display
-                    .paint(&mut game.scene, &mut canvas, &mut texture)?;
-                Ok(())
+        Ok(())
+    })();
+    drop(sender);
+    // Preserve the port's complete prefix even when validation or playback fails.
+    let save_result = trace_path.as_ref().map_or(Ok(()), |path| {
+        run.trace().and_then(|trace| save_trace(path, &trace))
+    });
+    if let Some(worker) = worker {
+        let report = worker
+            .join()
+            .map_err(|_| "MAME validation worker panicked")?
+            .map_err(|error| {
+                format!(
+                    "{error}; port trace: {}",
+                    trace_path
+                        .as_ref()
+                        .map_or_else(|| "unavailable".into(), |path| path.display().to_string())
+                )
             })?;
-        } else {
-            run.game
-                .display
-                .paint(&mut run.game.scene, &mut canvas, &mut texture)?;
-        }
-        round += 1;
-        if limit.is_some_and(|limit| round >= limit) {
-            break;
-        }
-        if preview {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        println!(
+            "Validated {} intervals; report: {}",
+            report.intervals,
+            report.work.join("report.json").display()
+        );
     }
-    if let Some(path) = trace_path {
-        save_trace(&path, &run.trace()?)?;
-    }
+    save_result?;
+    play_result?;
     if run.game.high_scores != initial_scores {
         let text = serde_json::to_string_pretty(&run.game.high_scores)
             .map_err(|error| error.to_string())?;
@@ -264,12 +333,13 @@ fn display(
 
 fn execute(command: Command) -> Result<(), String> {
     match command {
-        Command::Preview(level) => display(level, true, None, None),
+        Command::Preview(level) => display(level, true, None, None, false),
         Command::Play {
             level,
             trace,
             rounds,
-        } => display(level, false, trace, rounds),
+            validate_mame,
+        } => display(level, false, trace, rounds, validate_mame),
         Command::Replay(path) => {
             let text = fs::read_to_string(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))?;

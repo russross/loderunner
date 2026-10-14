@@ -9,12 +9,11 @@ use lode_trace::Phase;
 fn keyboard_acknowledgement_retains_code_and_repeated_delivery_is_available() {
     let mut keyboard = Keyboard::default();
     keyboard.deliver(0xcc);
-    assert_eq!(keyboard.read_mmio(0xc000), 0xcc);
-    keyboard.write_mmio(0xc010, 0);
-    assert_eq!(keyboard.read_mmio(0xc000), 0x4c);
+    assert_eq!(keyboard.observe(), Some(0xcc));
+    assert_eq!(keyboard.observe(), None);
+    assert_eq!(keyboard.read(), 0x4c);
     keyboard.deliver(0xcc);
-    assert_eq!(keyboard.read_mmio(0xc000), 0xcc);
-    keyboard.read_mmio(0xc010);
+    assert_eq!(keyboard.observe(), Some(0xcc));
     assert_eq!(keyboard.read(), 0x4c);
 }
 

@@ -4,9 +4,6 @@ use crate::collision::Layer;
 use crate::event_timing::{Draw, DrawKind};
 use crate::state::Game;
 
-pub const GUARD_SPRITES: [u8; 16] = [
-    8, 43, 44, 48, 49, 50, 54, 40, 41, 42, 45, 46, 47, 53, 51, 52,
-];
 pub const LEFT_DIG_DEBRIS: [u8; 12] = [27, 27, 28, 28, 29, 29, 30, 30, 0, 0, 0, 0];
 pub const RIGHT_DIG_DEBRIS: [u8; 12] = [38, 38, 39, 39, 29, 29, 30, 30, 0, 0, 0, 0];
 pub const DIG_BRICKS: [u8; 12] = [31, 31, 32, 32, 33, 33, 34, 34, 35, 35, 36, 36];

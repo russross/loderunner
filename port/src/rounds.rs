@@ -1,3 +1,4 @@
+use crate::board::GoldProgress;
 use crate::collision::Layer;
 use crate::event_timing::{SoundSection, TimingEvent};
 use crate::player::Journal;
@@ -19,11 +20,11 @@ impl Game {
             return Ok(inputs);
         }
         self.play_sound_section();
-        if self.gold_count == 0 {
+        if self.gold == GoldProgress::RevealPending {
             self.enable_exit_ladders();
         }
         let position = self.player.position;
-        if position.cell.row == 0 && position.y() == 2 && matches!(self.gold_count, 0 | 0xff) {
+        if position.cell.row == 0 && position.y() == 2 && self.gold.allows_completion() {
             self.session.phase = Phase::LevelCleared;
             return Ok(inputs);
         }
@@ -125,7 +126,7 @@ impl Game {
                         },
                     ));
                 }
-                Tile::Gold => self.gold_count = self.gold_count.wrapping_sub(1),
+                Tile::Gold => self.gold.remove_one(),
                 _ => (),
             }
             self.board.occupy(hole.cell, Tile::Brick);
@@ -154,7 +155,7 @@ impl Game {
             self.hidden_ladders.remove(slot);
         }
         if !blocked {
-            self.gold_count = 0xff;
+            self.gold = GoldProgress::Revealed;
         }
     }
 }

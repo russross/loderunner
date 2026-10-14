@@ -161,6 +161,49 @@ fn board(tiles: &[(usize, usize, lode_trace::Tile)]) -> LevelRecord {
     LevelRecord(bytes)
 }
 
+// A custom board can exhaust the byte-sized gold count. Exit eligibility and
+// collection after wrapping must still agree with original gameplay.
+#[test]
+fn crowded_gold_boards_preserve_exit_and_collection_behavior() {
+    use lode_trace::Tile;
+
+    for (count, player) in [254, 255, 256, 446]
+        .into_iter()
+        .flat_map(|count| [(count, 0), (count, 420)])
+    {
+        let mut tiles = vec![
+            (player % 28, player / 28, Tile::Player),
+            (0, 1, Tile::Brick),
+        ];
+        tiles.extend(
+            (1..448)
+                .map(|offset| (player + offset) % 448)
+                .filter(|&index| index != 28)
+                .take(count)
+                .map(|index| (index % 28, index / 28, Tile::Gold)),
+        );
+        let config = Configuration {
+            levels: vec![board(&tiles)],
+            start: 0,
+            high_scores: vec![],
+            wait_on_level_start: false,
+        };
+        let old_config = serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+        let mut old = OriginalRun::new(old_config, false).unwrap();
+        let mut new = Run::new(config, false).unwrap();
+        for key in [Some(0xcc), None, None, None, None, None] {
+            old.step(key).unwrap();
+            new.step(key).unwrap();
+            assert_eq!(
+                new.game.snapshot(),
+                old.game.snapshot(),
+                "gold count {count}"
+            );
+            support::assert_visible(&new.game.scene, &old.game.hires);
+        }
+    }
+}
+
 // These scenarios cross lifecycle boundaries that ordinary movement does not:
 // guard burial, hidden resurrection stages, dormant facing slots and menus.
 #[test]

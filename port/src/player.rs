@@ -1,6 +1,8 @@
 use crate::actors::{Command, DigSide, Digging, Direction};
+use crate::animation::PlayerFrame;
 use crate::board::Board;
 use crate::collision::Layer;
+use crate::devices::keyboard::Control;
 use crate::event_timing::TimingEvent;
 use crate::graphics::{DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS};
 use crate::sound::{DIG_NOTES, Note, play_note};
@@ -91,38 +93,40 @@ impl Game {
     }
 
     fn observe_player_input(&mut self) -> Result<Vec<Input>, String> {
-        let code = self.keyboard.read_mmio(0xc000);
-        self.keyboard.write_mmio(0xc010, code);
-        if code & 0x80 == 0 {
+        let Some(code) = self.keyboard.observe() else {
             return Ok(Vec::new());
-        }
-        match code {
-            0x9b => self.session.phase = Phase::Paused,
-            0x81 => self.player.alive = false,
-            0x92 => {
+        };
+        match Control::from_key(code) {
+            Some(Control::Pause) => self.session.phase = Phase::Paused,
+            Some(Control::Sacrifice) => self.player.alive = false,
+            Some(Control::EndGame) => {
                 self.session.lives = 1;
                 self.player.alive = false;
             }
-            0x9e => {
+            Some(Control::SkipLevel) => {
                 self.session.lives = self.session.lives.wrapping_add(1);
                 self.session.level = self.session.level.wrapping_add(1);
                 self.eligible_for_score = false;
                 self.skip_level = true;
                 self.player.alive = false;
             }
-            0x80 => {
+            Some(Control::ExtraLife) => {
                 self.session.lives = self.session.lives.saturating_add(1);
                 self.eligible_for_score = false;
             }
-            0x93 => self.sound.enabled = !self.sound.enabled,
-            0x95 => self.sound.frame_period = self.sound.frame_period.saturating_sub(1),
-            0x88 => self.sound.frame_period = (self.sound.frame_period + 1).min(15),
-            0x8b => (),
-            0x8d => self.session.phase = Phase::HighScores,
-            0x8a | 0x98 | 0x99 => {
+            Some(Control::ToggleSound) => self.sound.enabled = !self.sound.enabled,
+            Some(Control::Faster) => {
+                self.sound.frame_period = self.sound.frame_period.saturating_sub(1)
+            }
+            Some(Control::Slower) => {
+                self.sound.frame_period = (self.sound.frame_period + 1).min(15)
+            }
+            Some(Control::Keyboard) => (),
+            Some(Control::HighScores) => self.session.phase = Phase::HighScores,
+            Some(Control::Joystick) => {
                 return Err("joystick controls require a controller device".into());
             }
-            _ => self.player.command = Command::from_key(code),
+            None => self.player.command = Command::from_key(code),
         }
         Ok(vec![Input {
             observation: 0,
@@ -143,13 +147,6 @@ impl Game {
             self.player.alive = false;
         }
     }
-    fn animate_player(&mut self, lower: u8, upper: u8) {
-        self.clock.events.add(TimingEvent::PlayerAnimation, 1);
-        self.player.animation = self.player.animation.wrapping_add(1);
-        if self.player.animation <= lower || self.player.animation > upper {
-            self.player.animation = lower;
-        }
-    }
 
     // Collection is centered in both axes and suppresses overlap death for the
     // remaining player update. The actor still occupies the foreground cell.
@@ -160,7 +157,7 @@ impl Game {
             return Ok(());
         }
         self.player.collected_gold = true;
-        self.gold_count = self.gold_count.wrapping_sub(1);
+        self.gold.remove_one();
         self.board.terrain[Board::index(position.cell)] = Tile::Empty;
         let Cell { col, row } = position.cell;
         self.paint_tile(Layer::Background, 0, col, row);
@@ -213,9 +210,9 @@ impl Game {
         self.falling_sound = true;
         self.erase_player();
         self.player.animation = if self.player.facing == Facing::Left {
-            7
+            PlayerFrame::FallLeft
         } else {
-            15
+            PlayerFrame::FallRight
         };
         self.center_player_x(journal)?;
         let previous = self.player.position.cell;
@@ -303,14 +300,8 @@ impl Game {
             self.check_player_gold(journal)?;
         }
         let rope = self.board.terrain_at(self.player.position.cell) == Tile::Rope;
-        let (lower, upper) = match (direction, rope) {
-            (Direction::Left, true) => (3, 5),
-            (Direction::Left, false) => (0, 2),
-            (Direction::Right, true) => (11, 13),
-            (Direction::Right, false) => (8, 10),
-            _ => (16, 17),
-        };
-        self.animate_player(lower, upper);
+        self.clock.events.add(TimingEvent::PlayerAnimation, 1);
+        self.player.animation.advance(direction, rope);
         self.player.motion = direction.motion();
         self.draw_player();
         Ok(true)
@@ -360,10 +351,10 @@ impl Game {
         self.center_player_y(journal)?;
         self.sound.append_note(DIG_NOTES[stage])?;
         self.player.animation = match (dig.side, dig.stage() < 6) {
-            (DigSide::Left, true) => 6,
-            (DigSide::Left, false) => 0,
-            (DigSide::Right, true) => 14,
-            (DigSide::Right, false) => 8,
+            (DigSide::Left, true) => PlayerFrame::DigLeft,
+            (DigSide::Left, false) => PlayerFrame::WalkLeft1,
+            (DigSide::Right, true) => PlayerFrame::DigRight,
+            (DigSide::Right, false) => PlayerFrame::WalkRight1,
         };
         self.draw_player();
         if dig.stage() == 12 {

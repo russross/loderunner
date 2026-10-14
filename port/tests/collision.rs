@@ -221,7 +221,7 @@ fn intact_guard_contact(game: &Game, sprite: u8, x: u8, y: u8, terrain: bool) ->
         if matches!(guard.mode, GuardMode::Resurrecting { .. }) {
             return false;
         }
-        let (gx, gy) = guard.position.pixels();
+        let (gx, gy) = guard.position.half_x_and_pixel_y();
         let (dx, dy) = (
             (i16::from(gx) - i16::from(x)) * 2,
             i16::from(gy) - i16::from(y),
@@ -229,7 +229,7 @@ fn intact_guard_contact(game: &Game, sprite: u8, x: u8, y: u8, terrain: bool) ->
         if dx.abs() >= 10 || dy.abs() >= 11 {
             return false;
         }
-        let shape = rows(GUARDS[usize::from(guard.animation)]);
+        let shape = rows(guard.animation.sprite());
         (0i16..11).any(|row| {
             let guard_row = row - dy;
             if !(0..11).contains(&guard_row) {

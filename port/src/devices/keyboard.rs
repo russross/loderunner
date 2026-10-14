@@ -1,3 +1,8 @@
+pub const ESCAPE: u8 = 0x9b;
+pub const RETURN: u8 = 0x8d;
+pub const LEFT_ARROW: u8 = 0x88;
+pub const RIGHT_ARROW: u8 = 0x95;
+
 #[derive(Clone, Debug, Default)]
 pub struct Keyboard {
     code: u8,
@@ -14,25 +19,52 @@ impl Keyboard {
         self.code | if self.available { 0x80 } else { 0 }
     }
 
-    // Either a read or a write to the strobe acknowledges the code; the lower
-    // seven bits remain latched and there is no physical release indication.
-    pub fn clear_strobe(&mut self) {
+    // Acknowledgement retains the last code. Physical key release does not
+    // provide an observation and therefore cannot cancel persistent movement.
+    pub fn acknowledge(&mut self) {
         self.available = false;
     }
 
-    pub fn read_mmio(&mut self, address: u16) -> u8 {
-        match address {
-            0xc000 => self.read(),
-            0xc010 => {
-                self.clear_strobe();
-                self.read()
-            }
-            _ => panic!("unsupported keyboard address {address:04x}"),
-        }
+    pub fn observe(&mut self) -> Option<u8> {
+        let code = self.available.then(|| self.read());
+        self.acknowledge();
+        code
     }
+}
 
-    pub fn write_mmio(&mut self, address: u16, _value: u8) {
-        assert_eq!(address, 0xc010);
-        self.clear_strobe();
+// Codes remain the external trace/input format; gameplay dispatch uses named
+// controls. A control leaves the player's previous movement command intact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Control {
+    ExtraLife = 0x80,
+    Sacrifice = 0x81,
+    Slower = LEFT_ARROW,
+    Keyboard = 0x8b,
+    HighScores = RETURN,
+    EndGame = 0x92,
+    ToggleSound = 0x93,
+    Faster = RIGHT_ARROW,
+    Pause = ESCAPE,
+    SkipLevel = 0x9e,
+    Joystick = 0x8a,
+}
+
+impl Control {
+    pub fn from_key(code: u8) -> Option<Self> {
+        Some(match code {
+            0x80 => Self::ExtraLife,
+            0x81 => Self::Sacrifice,
+            0x88 => Self::Slower,
+            0x8b => Self::Keyboard,
+            0x8d => Self::HighScores,
+            0x92 => Self::EndGame,
+            0x93 => Self::ToggleSound,
+            0x95 => Self::Faster,
+            0x9b => Self::Pause,
+            0x9e => Self::SkipLevel,
+            0x8a | 0x98 | 0x99 => Self::Joystick,
+            _ => return None,
+        })
     }
 }

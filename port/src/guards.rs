@@ -1,8 +1,8 @@
 use crate::actors::{Direction, Guard, GuardMode, Position};
+use crate::animation::GuardFrame;
 use crate::board::Board;
 use crate::collision::Layer;
 use crate::event_timing::TimingEvent;
-use crate::graphics::GUARD_SPRITES;
 use crate::player::Journal;
 use crate::sound::Note;
 use crate::state::Game;
@@ -16,8 +16,8 @@ struct RouteChoice {
 
 impl Game {
     fn guard_coordinates(&self, guard: Guard) -> (u8, u8, u8) {
-        let (x, y) = guard.position.pixels();
-        (GUARD_SPRITES[usize::from(guard.animation)], x, y)
+        let (half_x, y) = guard.position.half_x_and_pixel_y();
+        (guard.animation.sprite(), half_x, y)
     }
     fn erase_guard(&mut self, guard: Guard) {
         let (sprite, x, y) = self.guard_coordinates(guard);
@@ -177,7 +177,11 @@ impl Game {
         self.clock.events.add(TimingEvent::GuardFall, 1);
         self.erase_guard(*guard);
         self.center_guard_x(guard, journal);
-        guard.animation = if guard.facing == Facing::Left { 6 } else { 13 };
+        guard.animation = if guard.facing == Facing::Left {
+            GuardFrame::FallLeft
+        } else {
+            GuardFrame::FallRight
+        };
         let previous = guard.position.cell;
         let crossed = guard.position.step(Direction::Down);
         guard.motion = Motion::Falling;
@@ -203,7 +207,7 @@ impl Game {
                         Occurrence::GoldDropped { cell: previous },
                     ));
                 } else {
-                    self.gold_count = self.gold_count.wrapping_sub(1);
+                    self.gold.remove_one();
                 }
                 guard.mode = GuardMode::Roaming;
             }
@@ -212,7 +216,7 @@ impl Game {
             self.check_guard_gold(guard, journal);
             if self.board.terrain_at(guard.position.cell) == Tile::Brick {
                 if guard.mode.carrying() {
-                    self.gold_count = self.gold_count.wrapping_sub(1);
+                    self.gold.remove_one();
                 }
                 let delay =
                     [38, 38, 46, 68, 71, 73, 74, 75, 76, 77, 78][usize::from(self.difficulty)];
@@ -335,17 +339,7 @@ impl Game {
             self.check_guard_gold(guard, journal);
         }
         let rope = self.board.terrain_at(guard.position.cell) == Tile::Rope;
-        let (lower, upper) = match (direction, rope) {
-            (Direction::Left, true) => (3, 5),
-            (Direction::Left, false) => (0, 2),
-            (Direction::Right, true) => (10, 12),
-            (Direction::Right, false) => (7, 9),
-            _ => (14, 15),
-        };
-        guard.animation = guard.animation.wrapping_add(1);
-        if guard.animation <= lower || guard.animation > upper {
-            guard.animation = lower;
-        }
+        guard.animation.advance(direction, rope);
         self.draw_guard(*guard);
     }
     fn choose_guard_route(&mut self, guard: Guard) -> Option<Direction> {
@@ -566,7 +560,7 @@ impl Game {
             if matches!(self.board.terrain[index + 28], Tile::Brick | Tile::Stone) {
                 return row;
             }
-            let mut pointer_row = row;
+            let mut right_neighbor_row = row;
             if self.board.terrain[index] != Tile::Empty {
                 self.clock.events.add(TimingEvent::BelowNonEmpty, 1);
                 self.clock.events.add(
@@ -581,7 +575,7 @@ impl Game {
                         return row;
                     }
                     if self.board.terrain[index - 1] != Tile::Rope {
-                        pointer_row = row + 1;
+                        right_neighbor_row = row + 1;
                         if matches!(
                             self.board.terrain[index + 27],
                             Tile::Brick | Tile::Stone | Tile::Ladder
@@ -595,7 +589,7 @@ impl Game {
                     self.clock.events.add(TimingEvent::BelowRightProbe, 1);
                     // A left neighbor without a rope moves the right-neighbor
                     // check down one row. Otherwise that check stays on this row.
-                    let pointer = usize::from(pointer_row) * 28 + usize::from(col);
+                    let pointer = usize::from(right_neighbor_row) * 28 + usize::from(col);
                     if self.board.terrain[pointer + 1] == Tile::Rope
                         && row >= self.player.position.cell.row
                     {
@@ -624,7 +618,7 @@ impl Game {
             .ok_or("guard occupancy has no matching guard")?;
         let mut guard = self.guards[index];
         if guard.mode.carrying() {
-            self.gold_count = self.gold_count.wrapping_sub(1);
+            self.gold.remove_one();
         }
         self.erase_guard(guard);
         let mut row = 1;
@@ -651,7 +645,7 @@ impl Game {
             col: self.resurrection_col,
             row,
         });
-        guard.animation = 0;
+        guard.animation = GuardFrame::WalkLeft1;
         guard.motion = Motion::Standing;
         guard.mode = GuardMode::Resurrecting {
             appear_in: NonZeroU8::new(20).expect("resurrection duration"),
@@ -710,7 +704,7 @@ impl Game {
                 if matches!(remaining, 19 | 10) {
                     let sprite = if remaining == 19 { 0x39 } else { 0x3a };
                     self.paint_tile(Layer::Background, sprite, cell.col, cell.row);
-                    let (x, y) = guard.position.pixels();
+                    let (x, y) = guard.position.half_x_and_pixel_y();
                     self.overlay_shape(sprite, x, y);
                 }
             }

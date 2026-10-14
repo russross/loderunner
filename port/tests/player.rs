@@ -50,9 +50,9 @@ fn gold_is_collected_at_center_and_only_once() {
     for _ in 0..4 {
         game.update_player(&mut journal).unwrap();
     }
-    assert_eq!(game.gold_count, 1);
+    assert!(!game.gold.allows_completion());
     game.update_player(&mut journal).unwrap();
-    assert_eq!(game.gold_count, 0);
+    assert!(game.gold.allows_completion());
     assert_eq!(game.score.decimal(), 250);
     assert_eq!(
         journal

@@ -1,6 +1,7 @@
-//! Procedural translation of the Apple II game and its device boundary.
+//! Event-timed Lode Runner gameplay, composed sprite scenes and native presentation.
 
 pub mod actors;
+pub mod animation;
 pub mod board;
 pub mod collision;
 pub mod devices;

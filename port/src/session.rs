@@ -1,4 +1,5 @@
 use crate::actors::Command;
+use crate::devices::keyboard::{Control, LEFT_ARROW, RETURN, RIGHT_ARROW};
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::score::Score;
@@ -123,9 +124,7 @@ impl Run {
         let mut inputs = Vec::new();
         match phase {
             Phase::HighScores | Phase::Initials => {
-                let code = self.game.keyboard.read();
-                if code & 0x80 != 0 {
-                    self.game.keyboard.clear_strobe();
+                if let Some(code) = self.game.keyboard.observe() {
                     inputs.push(Input {
                         observation: 0,
                         key: code,
@@ -146,9 +145,7 @@ impl Run {
             }
             Phase::Died | Phase::LevelCleared => self.transition()?,
             Phase::Waiting | Phase::Paused | Phase::GameOver => {
-                let code = self.game.keyboard.read_mmio(0xc000);
-                if code & 0x80 != 0 {
-                    self.game.keyboard.clear_strobe();
+                if let Some(code) = self.game.keyboard.observe() {
                     inputs.push(Input {
                         observation: 0,
                         key: code,
@@ -156,7 +153,9 @@ impl Run {
                     if self.game.session.phase == Phase::GameOver {
                         self.level_index = self.configuration.start;
                         self.reload(true)?;
-                    } else if self.game.session.phase != Phase::Paused || code == 0x9b {
+                    } else if self.game.session.phase != Phase::Paused
+                        || Control::from_key(code) == Some(Control::Pause)
+                    {
                         if self.game.session.phase == Phase::Waiting && code >= 0xa0 {
                             self.game.player.command = Command::from_key(code);
                         }
@@ -311,14 +310,14 @@ impl Run {
         let Some((index, mut cursor)) = self.initials else {
             return;
         };
-        if code == 0x8d {
+        if code == RETURN {
             self.initials = None;
             self.game.session.phase = Phase::GameOver;
             return;
         }
-        if code == 0x88 {
+        if code == LEFT_ARROW {
             cursor = cursor.saturating_sub(1);
-        } else if code == 0x95 {
+        } else if code == RIGHT_ARROW {
             cursor = (cursor + 1).min(2);
         } else if matches!(code & 0x7f, b'A'..=b'Z' | b'.' | b' ') {
             self.game.high_scores[index].initials[cursor] = code & 0x7f;

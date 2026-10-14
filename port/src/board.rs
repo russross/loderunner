@@ -2,6 +2,38 @@
 use lode_trace::{Cell, HolePhase, Tile};
 use std::num::NonZeroU8;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GoldProgress {
+    Collecting(NonZeroU8),
+    RevealPending,
+    Revealed,
+}
+
+impl GoldProgress {
+    // Custom boards retain the original wrapping count, including the value
+    // reserved for finished exit processing. Gameplay uses the named states.
+    pub fn from_count(count: u8) -> Self {
+        match count {
+            0 => Self::RevealPending,
+            255 => Self::Revealed,
+            _ => Self::Collecting(NonZeroU8::new(count).expect("positive gold count")),
+        }
+    }
+
+    pub fn remove_one(&mut self) {
+        let count = match *self {
+            Self::Collecting(count) => count.get(),
+            Self::RevealPending => 0,
+            Self::Revealed => 255,
+        };
+        *self = Self::from_count(count.wrapping_sub(1));
+    }
+
+    pub fn allows_completion(self) -> bool {
+        !matches!(self, Self::Collecting(_))
+    }
+}
+
 pub struct Board {
     pub terrain: [Tile; 448],
     pub cells: [Tile; 448],

@@ -1,5 +1,5 @@
-use crate::actors::{Command, DigSide, Guard, GuardId, GuardMode, GuardSchedule, Player, Position};
-use crate::board::{Board, Holes};
+use crate::actors::{DigSide, Guard, GuardId, GuardMode, GuardSchedule, Player};
+use crate::board::{Board, GoldProgress, Holes};
 use crate::collision::{Layer, Scene};
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
@@ -9,7 +9,7 @@ use crate::sound::Sound;
 use crate::storage::decode_level;
 use crate::timing::Clock;
 use lode_trace::{
-    Action, Actor, ActorId, Cell, Facing, Hole, Life, Motion, Phase, Session, Snapshot, Tile,
+    Action, Actor, ActorId, Cell, Facing, Hole, Life, Phase, Session, Snapshot, Tile,
 };
 
 pub struct Game {
@@ -21,7 +21,7 @@ pub struct Game {
     pub hidden_ladders: Vec<Cell>,
     pub session: Progress,
     pub score: Score,
-    pub gold_count: u8,
+    pub gold: GoldProgress,
     pub falling_sound: bool,
     pub falling_pitch: u8,
     pub resurrection_col: u8,
@@ -73,23 +73,16 @@ impl Game {
         };
         let mut game = Self {
             board: Board::new(tiles),
-            player: Player {
-                position: Position::centered(cell),
-                animation: 8,
-                facing: Facing::Right,
-                motion: Motion::Standing,
-                digging: None,
-                command: Command::Stop,
-                alive: true,
-                collected_gold: false,
-            },
+            player: Player::new(cell, Facing::Right),
             guards: Vec::new(),
             guard_schedule: GuardSchedule::default(),
             holes: Holes::default(),
             hidden_ladders: Vec::new(),
             session: Progress::new(level),
             score: Score::default(),
-            gold_count: 0,
+            gold: GoldProgress::from_count(
+                tiles.iter().filter(|&&tile| tile == Tile::Gold).count() as u8,
+            ),
             falling_sound: false,
             falling_pitch: 0x20,
             resurrection_col: 0,
@@ -122,24 +115,20 @@ impl Game {
             self.guard_facings[guard.id.index()] = guard.facing;
         }
         self.board = Board::new(tiles);
-        self.player = Player {
-            position: Position::centered(Cell {
+        self.player = Player::new(
+            Cell {
                 col: (index % 28) as u8,
                 row: (index / 28) as u8,
-            }),
-            animation: 8,
-            facing: self.player.facing,
-            motion: Motion::Standing,
-            digging: None,
-            command: Command::Stop,
-            alive: true,
-            collected_gold: false,
-        };
+            },
+            self.player.facing,
+        );
         self.guards.clear();
         self.guard_schedule.restart_roster();
         self.holes = Holes::default();
         self.hidden_ladders.clear();
-        self.gold_count = 0;
+        self.gold = GoldProgress::from_count(
+            tiles.iter().filter(|&&tile| tile == Tile::Gold).count() as u8,
+        );
         self.skip_level = false;
         self.keyboard = Keyboard::default();
         self.sound.clear();
@@ -166,7 +155,6 @@ impl Game {
                     self.board.cells[index] = Tile::Empty;
                     self.board.terrain[index] = Tile::Empty;
                 }
-                Tile::Gold => self.gold_count = self.gold_count.wrapping_add(1),
                 Tile::Guard => {
                     if self.guards.len() == 5 {
                         self.board.cells[index] = Tile::Empty;
@@ -204,11 +192,8 @@ impl Game {
     }
 
     pub fn player_sprite_coordinates(&self) -> (u8, u8, u8) {
-        const ANIMATION: [u8; 18] = [
-            11, 12, 13, 24, 25, 26, 15, 19, 9, 16, 17, 21, 22, 23, 37, 20, 14, 18,
-        ];
-        let (x, y) = self.player.position.pixels();
-        (ANIMATION[usize::from(self.player.animation)], x, y)
+        let (half_x, y) = self.player.position.half_x_and_pixel_y();
+        (self.player.animation.sprite(), half_x, y)
     }
 
     // Observation translates concrete game state into the shared trace contract.

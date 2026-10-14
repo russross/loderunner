@@ -1,4 +1,5 @@
 //! Concrete actor positions and the states that determine their next update.
+use crate::animation::{GuardFrame, PlayerFrame};
 use lode_trace::{ActorId, Cell, Facing, Motion};
 use std::num::NonZeroU8;
 
@@ -91,7 +92,7 @@ impl Position {
         false
     }
 
-    pub fn pixels(self) -> (u8, u8) {
+    pub fn half_x_and_pixel_y(self) -> (u8, u8) {
         const VERTICAL: [i8; 5] = [-5, -3, 0, 2, 4];
         (
             (self.cell.col * 5).wrapping_add(self.x).wrapping_sub(2),
@@ -162,13 +163,28 @@ impl Digging {
 #[derive(Clone, Copy, Debug)]
 pub struct Player {
     pub position: Position,
-    pub animation: u8,
+    pub animation: PlayerFrame,
     pub facing: Facing,
     pub motion: Motion,
     pub digging: Option<Digging>,
     pub command: Command,
     pub alive: bool,
     pub collected_gold: bool,
+}
+
+impl Player {
+    pub fn new(cell: Cell, facing: Facing) -> Self {
+        Self {
+            position: Position::centered(cell),
+            animation: PlayerFrame::WalkRight1,
+            facing,
+            motion: Motion::Standing,
+            digging: None,
+            command: Command::Stop,
+            alive: true,
+            collected_gold: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,7 +223,7 @@ impl GuardMode {
 pub struct Guard {
     pub id: GuardId,
     pub position: Position,
-    pub animation: u8,
+    pub animation: GuardFrame,
     pub facing: Facing,
     pub mode: GuardMode,
     pub motion: Motion,
@@ -218,7 +234,7 @@ impl Guard {
         Self {
             id,
             position: Position::centered(cell),
-            animation: 0,
+            animation: GuardFrame::WalkLeft1,
             facing: Facing::Right,
             mode: GuardMode::Roaming,
             motion: Motion::Standing,

@@ -8,6 +8,7 @@ pub mod event_timing;
 pub mod graphics;
 pub mod guards;
 pub mod player;
+pub mod render;
 pub mod rounds;
 pub mod score;
 pub mod screen;

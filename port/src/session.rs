@@ -111,7 +111,7 @@ impl Run {
         self.last_start = self.game.clock.cycles;
         let phase = self.game.session.phase;
         self.game.clock.events = Events::default();
-        self.game.hires.events = Events::default();
+        self.game.display.events = Events::default();
         if phase == Phase::Playing {
             self.game.clock.events.add(TimingEvent::Round, 1);
         }
@@ -195,7 +195,7 @@ impl Run {
         self.game
             .clock
             .events
-            .merge(std::mem::take(&mut self.game.hires.events));
+            .merge(std::mem::take(&mut self.game.display.events));
         let interval = TimingInterval {
             phase,
             end_phase: self.game.session.phase,
@@ -274,7 +274,7 @@ impl Run {
         self.game
             .clock
             .events
-            .merge(std::mem::take(&mut self.game.hires.events));
+            .merge(std::mem::take(&mut self.game.display.events));
         self.game
             .clock
             .events

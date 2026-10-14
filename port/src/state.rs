@@ -1,9 +1,9 @@
 use crate::actors::{Command, DigSide, Guard, GuardId, GuardMode, GuardSchedule, Player, Position};
 use crate::board::{Board, Holes};
-use crate::collision::Scene;
-use crate::devices::hires::Hires;
+use crate::collision::{Layer, Scene};
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
+use crate::render::Display;
 use crate::score::Score;
 use crate::sound::Sound;
 use crate::storage::decode_level;
@@ -29,8 +29,8 @@ pub struct Game {
     pub skip_level: bool,
     pub high_scores: Vec<lode_trace::HighScore>,
     pub eligible_for_score: bool,
-    pub hires: Hires,
-    pub contacts: Scene,
+    pub display: Display,
+    pub scene: Scene,
     pub keyboard: Keyboard,
     pub speaker: Speaker,
     pub sound: Sound,
@@ -81,8 +81,8 @@ impl Game {
             skip_level: false,
             high_scores: Vec::new(),
             eligible_for_score: true,
-            hires: Hires::default(),
-            contacts: Scene::default(),
+            display: Display::default(),
+            scene: Scene::default(),
             keyboard: Keyboard::default(),
             speaker: Speaker::default(),
             sound: Sound::default(),
@@ -122,9 +122,12 @@ impl Game {
                 }
                 _ => (),
             }
-            for (page, tile) in [(0, game.board.cells[index]), (1, game.board.terrain[index])] {
+            for (layer, tile) in [
+                (Layer::Foreground, game.board.cells[index]),
+                (Layer::Background, game.board.terrain[index]),
+            ] {
                 game.paint_tile(
-                    page,
+                    layer,
                     if tile == Tile::Trap { 1 } else { tile as u8 },
                     cell.col,
                     cell.row,

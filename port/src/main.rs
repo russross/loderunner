@@ -1,9 +1,9 @@
-use lode_port::devices::hires::{HEIGHT, WIDTH};
+use lode_port::render::{HEIGHT, WIDTH};
 use lode_port::session::{Configuration, Run, replay};
 use lode_port::timing::{Clock, NTSC_CPU_HZ};
 use lode_trace::Trace;
 use sdl2::audio::AudioSpecDesired;
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Mod};
 use sdl2::pixels::PixelFormatEnum;
 use std::fs;
@@ -191,6 +191,11 @@ fn display(
         let mut delivery = None;
         for event in events.poll_iter() {
             match event {
+                Event::Window {
+                    win_event:
+                        WindowEvent::Exposed | WindowEvent::Resized(..) | WindowEvent::SizeChanged(..),
+                    ..
+                } => run.game.display.request_present(),
                 Event::Quit { .. } => break 'play,
                 Event::KeyDown {
                     keycode: Some(Keycode::Q),
@@ -229,11 +234,14 @@ fn display(
                 sample_frame = final_frame;
                 game.speaker
                     .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
-                game.hires.paint(&mut canvas, &mut texture)?;
+                game.display
+                    .paint(&mut game.scene, &mut canvas, &mut texture)?;
                 Ok(())
             })?;
         } else {
-            run.game.hires.paint(&mut canvas, &mut texture)?;
+            run.game
+                .display
+                .paint(&mut run.game.scene, &mut canvas, &mut texture)?;
         }
         round += 1;
         if limit.is_some_and(|limit| round >= limit) {

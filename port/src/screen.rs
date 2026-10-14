@@ -1,9 +1,9 @@
-use crate::graphics::row_address;
+use crate::collision::Layer;
 use crate::state::Game;
 use lode_trace::Tile;
 
 impl Game {
-    pub fn put_text(&mut self, page: usize, col: u8, row: u8, text: &str) {
+    pub fn put_text(&mut self, layer: Layer, col: u8, row: u8, text: &str) {
         for (offset, byte) in text.bytes().enumerate() {
             let sprite = match byte {
                 b'A'..=b'Z' => byte - b'A' + 69,
@@ -18,33 +18,35 @@ impl Game {
                 b'<' => 101,
                 _ => 0,
             };
-            self.paint_tile(page, sprite, col + offset as u8, row);
+            self.paint_tile(layer, sprite, col + offset as u8, row);
         }
     }
 
     pub fn put_status(&mut self) {
-        self.contacts.status_border();
-        for row in 176..180 {
-            let address = row_address(0, row);
-            for col in 0..40 {
-                self.hires
-                    .write(address + col, if col % 2 == 0 { 0xd5 } else { 0xaa });
-            }
-        }
-        self.put_text(0, 0, 16, "SCORE        MEN    LEVEL   ");
-        self.put_text(0, 16, 16, &format!("{:03}", self.session.lives));
-        self.put_text(0, 25, 16, &format!("{:03}", self.session.level));
+        self.scene.status_border();
+        self.put_text(Layer::Foreground, 0, 16, "SCORE        MEN    LEVEL   ");
+        self.put_text(
+            Layer::Foreground,
+            16,
+            16,
+            &format!("{:03}", self.session.lives),
+        );
+        self.put_text(
+            Layer::Foreground,
+            25,
+            16,
+            &format!("{:03}", self.session.level),
+        );
         self.add_score(0);
     }
 
-    // High scores reuse the original background page. Closing the table rebuilds
-    // that page from logical terrain while leaving the foreground actors intact.
+    // High scores occupy the background layer. Closing the table rebuilds that
+    // layer from logical terrain while leaving the foreground actors intact.
     pub fn show_high_scores(&mut self) {
-        self.contacts.clear_background();
-        self.hires.clear(1);
-        self.put_text(1, 4, 0, "LODE RUNNER HIGH SCORES");
-        self.put_text(1, 4, 3, "INITIALS LEVEL  SCORE");
-        self.put_text(1, 4, 4, "-------- ----- --------");
+        self.scene.clear_background();
+        self.put_text(Layer::Background, 4, 0, "LODE RUNNER HIGH SCORES");
+        self.put_text(Layer::Background, 4, 3, "INITIALS LEVEL  SCORE");
+        self.put_text(Layer::Background, 4, 4, "-------- ----- --------");
         for index in 0..self.high_scores.len() {
             let entry = &self.high_scores[index];
             let initials = String::from_utf8_lossy(&entry.initials);
@@ -55,20 +57,24 @@ impl Game {
                 entry.level,
                 entry.score
             );
-            self.put_text(1, 0, 5 + index as u8, &text);
+            self.put_text(Layer::Background, 0, 5 + index as u8, &text);
         }
-        self.hires.select(1);
+        self.display.select(Layer::Background);
     }
 
     pub fn restore_background(&mut self) {
-        self.contacts.clear_background();
-        self.hires.clear(1);
+        self.scene.clear_background();
         for row in (0..16).rev() {
             for col in (0..28).rev() {
                 let tile = self.board.terrain[usize::from(row) * 28 + usize::from(col)];
-                self.paint_tile(1, if tile == Tile::Trap { 1 } else { tile as u8 }, col, row);
+                self.paint_tile(
+                    Layer::Background,
+                    if tile == Tile::Trap { 1 } else { tile as u8 },
+                    col,
+                    row,
+                );
             }
         }
-        self.hires.select(0);
+        self.display.select(Layer::Foreground);
     }
 }

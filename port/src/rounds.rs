@@ -1,3 +1,4 @@
+use crate::collision::Layer;
 use crate::event_timing::{SoundSection, TimingEvent};
 use crate::player::Journal;
 use crate::sound::play_note;
@@ -42,7 +43,7 @@ impl Game {
     pub fn play_sound_section(&mut self) {
         self.clock
             .events
-            .merge(std::mem::take(&mut self.hires.events));
+            .merge(std::mem::take(&mut self.display.events));
         let section = match self.sound.peek() {
             Some(note) => SoundSection::Buffered {
                 duration: note.duration,
@@ -82,8 +83,8 @@ impl Game {
         self.clock.events.end_sound(section);
     }
 
-    // Refilling preserves brick terrain while restoring occupancy and both hires
-    // images. Reverse allocation order determines concurrent deaths and respawns.
+    // Refilling preserves brick terrain while restoring occupancy and both scene
+    // layers. Reverse allocation order determines concurrent deaths and respawns.
     pub fn update_holes(&mut self, journal: &mut Journal) -> Result<(), String> {
         self.clock.events.add(TimingEvent::HoleScan, 1);
         for slot in (0..self.holes.entries.len()).rev() {
@@ -97,7 +98,12 @@ impl Game {
                 hole.remaining = timer;
                 self.holes.entries[slot] = Some(hole);
                 if matches!(remaining, 20 | 10) {
-                    self.paint_tile(1, if remaining == 20 { 0x37 } else { 0x38 }, col, row);
+                    self.paint_tile(
+                        Layer::Background,
+                        if remaining == 20 { 0x37 } else { 0x38 },
+                        col,
+                        row,
+                    );
                     self.erase_shape(0, col * 5, row * 11);
                 }
                 continue;
@@ -107,8 +113,8 @@ impl Game {
                 Tile::Guard => {
                     self.board.occupy(hole.cell, Tile::Brick);
                     self.board.terrain[usize::from(row) * 28 + usize::from(col)] = Tile::Brick;
-                    self.paint_tile(0, 1, col, row);
-                    self.paint_tile(1, 1, col, row);
+                    self.paint_tile(Layer::Foreground, 1, col, row);
+                    self.paint_tile(Layer::Background, 1, col, row);
                     self.bury_guard(hole.cell, journal)?;
                     continue;
                 }
@@ -125,8 +131,8 @@ impl Game {
                 _ => (),
             }
             self.board.occupy(hole.cell, Tile::Brick);
-            self.paint_tile(0, 1, col, row);
-            self.paint_tile(1, 1, col, row);
+            self.paint_tile(Layer::Foreground, 1, col, row);
+            self.paint_tile(Layer::Background, 1, col, row);
         }
         Ok(())
     }
@@ -145,7 +151,7 @@ impl Game {
             if self.board.at(cell) == Tile::Empty {
                 self.board.occupy(cell, Tile::Ladder);
             }
-            self.paint_tile(1, 3, cell.col, cell.row);
+            self.paint_tile(Layer::Background, 3, cell.col, cell.row);
             self.overlay_shape(3, cell.col * 5, cell.row * 11);
             self.hidden_ladders.remove(slot);
         }

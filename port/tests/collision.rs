@@ -4,11 +4,13 @@ use lode_original::graphics::{
 };
 use lode_original::session::{Configuration as OriginalConfiguration, Run as OriginalRun};
 use lode_port::actors::GuardMode;
-use lode_port::collision::{Scene, Shape};
+use lode_port::collision::{Layer, Scene, Shape};
 use lode_port::session::{Configuration, Run};
 use lode_port::state::Game;
 use lode_port::storage::{LevelRecord, original_level};
 use lode_trace::Phase;
+
+mod support;
 
 const PLAYERS: [u8; 18] = [
     11, 12, 13, 24, 25, 26, 15, 19, 9, 16, 17, 21, 22, 23, 37, 20, 14, 18,
@@ -69,7 +71,16 @@ impl Reference {
         }
     }
     fn tile(&mut self, page: usize, sprite: u8, col: u8, row: u8) {
-        self.scene.tile(page, sprite, col, row);
+        self.scene.tile(
+            if page == 0 {
+                Layer::Foreground
+            } else {
+                Layer::Background
+            },
+            sprite,
+            col,
+            row,
+        );
         draw_sprite(&mut self.hires, page, sprite, col, row);
     }
     fn overlay(&mut self, sprite: u8, x: u8, y: u8) {
@@ -231,10 +242,12 @@ fn intact_guard_contact(game: &Game, sprite: u8, x: u8, y: u8, terrain: bool) ->
                     shape[guard_row as usize] >> -dx
                 };
             if terrain {
+                let background = game
+                    .scene
+                    .row_bits(Layer::Background, usize::from(y) + row as usize);
                 for column in 0..10 {
                     let px = u16::from(x) * 2 + column;
-                    let background = game.hires.read(row_address(1, y + row as u8) + px / 7);
-                    if background & (1 << (px % 7)) != 0 {
+                    if background[usize::from(px) / 64] & (1 << (px % 64)) != 0 {
                         overlap &= !(1 << column);
                     }
                 }
@@ -269,16 +282,12 @@ fn forced_probes_from_reached_states_match_scene_while_pose_only_does_not() {
             // Inspect the proposed new player after erasing its old shape. The
             // scenario is a forced contact experiment, not a committed game turn.
             let (sprite, x, y) = run.game.player_sprite_coordinates();
-            let mut scene = run.game.contacts.clone();
+            let mut scene = run.game.scene.clone();
             scene.erase(sprite, x, y);
             let mut probe = Reference::new();
+            support::assert_visible(&run.game.scene, &old.game.hires);
             for address in 0x2000..0x6000 {
                 let expected = old.game.hires.read(address);
-                assert_eq!(
-                    run.game.hires.read(address),
-                    expected,
-                    "level {level}, turn {turn}, address {address:04x}"
-                );
                 probe.hires.write(address, expected);
             }
             erase_sprite_at_pixels(&mut probe.hires, sprite, x, y);

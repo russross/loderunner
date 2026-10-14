@@ -1,5 +1,6 @@
 use crate::actors::{Direction, Guard, GuardMode, Position};
 use crate::board::Board;
+use crate::collision::Layer;
 use crate::event_timing::TimingEvent;
 use crate::graphics::GUARD_SPRITES;
 use crate::player::Journal;
@@ -120,7 +121,7 @@ impl Game {
             drop_in: NonZeroU8::new(self.resurrection_col + 1).expect("gold drop delay"),
         };
         self.board.terrain[Board::index(cell)] = Tile::Empty;
-        self.paint_tile(1, 0, cell.col, cell.row);
+        self.paint_tile(Layer::Background, 0, cell.col, cell.row);
         self.erase_shape(7, cell.col * 5, cell.row * 11);
         journal.push((Subject::Actor(guard.id.actor()), Occurrence::GoldCollected));
     }
@@ -139,7 +140,7 @@ impl Game {
         }
         guard.mode = GuardMode::Roaming;
         self.board.terrain[Board::index(cell)] = Tile::Gold;
-        self.paint_tile(1, 7, cell.col, cell.row);
+        self.paint_tile(Layer::Background, 7, cell.col, cell.row);
         self.overlay_shape(7, cell.col * 5, cell.row * 11);
         journal.push((
             Subject::Actor(guard.id.actor()),
@@ -195,7 +196,7 @@ impl Game {
                 if self.board.terrain_at(previous) == Tile::Empty {
                     self.board.terrain[Board::index(previous)] = Tile::Gold;
                     self.board.occupy(previous, Tile::Gold);
-                    self.paint_tile(1, 7, previous.col, previous.row);
+                    self.paint_tile(Layer::Background, 7, previous.col, previous.row);
                     self.overlay_shape(7, previous.col * 5, previous.row * 11);
                     journal.push((
                         Subject::Actor(guard.id.actor()),
@@ -681,8 +682,8 @@ impl Game {
                     continue;
                 }
                 self.board.occupy(cell, Tile::Guard);
-                self.paint_tile(1, 0, cell.col, cell.row);
-                self.paint_tile(0, 8, cell.col, cell.row);
+                self.paint_tile(Layer::Background, 0, cell.col, cell.row);
+                self.paint_tile(Layer::Foreground, 8, cell.col, cell.row);
                 guard.mode = GuardMode::Roaming;
                 self.sound.load_sound_data(&[
                     Note {
@@ -708,7 +709,7 @@ impl Game {
                 };
                 if matches!(remaining, 19 | 10) {
                     let sprite = if remaining == 19 { 0x39 } else { 0x3a };
-                    self.paint_tile(1, sprite, cell.col, cell.row);
+                    self.paint_tile(Layer::Background, sprite, cell.col, cell.row);
                     let (x, y) = guard.position.pixels();
                     self.overlay_shape(sprite, x, y);
                 }

@@ -1,38 +1,9 @@
-use lode_port::devices::hires::Hires;
 use lode_port::devices::keyboard::Keyboard;
 use lode_port::devices::speaker::Speaker;
 use lode_port::event_timing::{Model, TimingInterval};
-use lode_port::graphics::{erase_sprite_at_pixels, overlay_sprite_at_pixels, row_address};
 use lode_port::sound::{Note, Sound, play_note};
 use lode_port::timing::Clock;
 use lode_trace::Phase;
-
-#[test]
-fn hires_holes_persist_without_dirty_pixels_and_page_switch_invalidates() {
-    let mut hires = Hires::default();
-    hires.acknowledge();
-    hires.write(0x2078, 0x42);
-    assert_eq!(hires.read(0x2078), 0x42);
-    assert!(hires.dirty_rows().is_empty());
-    hires.write(row_address(0, 80), 0x81);
-    assert_eq!(hires.dirty_rows(), vec![80]);
-    hires.select(1);
-    assert_eq!(hires.dirty_rows().len(), 192);
-}
-
-#[test]
-fn original_scanline_tables_match_visible_address_mapping() {
-    for row in 0..192 {
-        assert_eq!(
-            row_address(0, row as u8),
-            0x2000 + Hires::row_offset(row) as u16
-        );
-        assert_eq!(
-            row_address(1, row as u8),
-            0x4000 + Hires::row_offset(row) as u16
-        );
-    }
-}
 
 #[test]
 fn keyboard_acknowledgement_retains_code_and_repeated_delivery_is_available() {
@@ -45,25 +16,6 @@ fn keyboard_acknowledgement_retains_code_and_repeated_delivery_is_available() {
     assert_eq!(keyboard.read_mmio(0xc000), 0xcc);
     keyboard.read_mmio(0xc010);
     assert_eq!(keyboard.read(), 0x4c);
-}
-
-#[test]
-fn repeated_overlay_is_idempotent_and_erasure_restores_background() {
-    let mut hires = Hires::default();
-    overlay_sprite_at_pixels(&mut hires, 9, 50, 55);
-    let first: Vec<_> = (0x2000..0x4000)
-        .map(|address| hires.read(address))
-        .collect();
-    assert!(first.iter().any(|&byte| byte != 0x80));
-    overlay_sprite_at_pixels(&mut hires, 9, 50, 55);
-    assert_eq!(
-        first,
-        (0x2000..0x4000)
-            .map(|address| hires.read(address))
-            .collect::<Vec<_>>()
-    );
-    erase_sprite_at_pixels(&mut hires, 9, 50, 55);
-    assert!((0x2000..0x4000).all(|address| hires.read(address) == 0x80));
 }
 
 #[test]

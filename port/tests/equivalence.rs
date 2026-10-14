@@ -1,14 +1,15 @@
 use lode_original::session::{Configuration as OriginalConfiguration, Run as OriginalRun};
+use lode_port::collision::{Layer, Scene};
 use lode_port::devices::speaker::Speaker;
 use lode_port::event_timing::{Model, TimingInterval};
-use lode_port::graphics::{
-    compute_shifted_sprite, draw_sprite, erase_sprite_at_pixels, overlay_sprite_at_pixels,
-};
+use lode_port::graphics::sprite_rows;
 use lode_port::session::{Configuration, Run};
 use lode_port::sound::play_note;
 use lode_port::storage::{LevelRecord, original_level};
 use lode_port::timing::Clock;
 use lode_trace::Phase;
+
+mod support;
 
 // Input-only execution protects gameplay across timing changes. Complete model
 // turns must retain the previously calibrated duration on its gameplay domain.
@@ -44,13 +45,9 @@ fn all_boards_match_original_gameplay_and_calibrated_turn_costs() {
                 old.game.snapshot(),
                 "level {level}, turn {turn}"
             );
-            for address in 0x2000..0x6000 {
-                assert_eq!(
-                    new.game.hires.read(address),
-                    old.game.hires.read(address),
-                    "level {level}, turn {turn}, hires {address:04x}"
-                );
-            }
+            support::assert_visible(&new.game.scene, &old.game.hires);
+            new.game.display.prepare(&new.game.scene);
+            new.game.display.acknowledge(&mut new.game.scene);
             let previous = old.last_timing().unwrap();
             if previous.phase == Phase::Playing
                 && matches!(
@@ -74,40 +71,46 @@ fn all_boards_match_original_gameplay_and_calibrated_turn_costs() {
     }
 }
 
-// Graphics simplifications must preserve every packed byte and collision result,
-// including all shift alignments, both widths and the status row's table crossings.
+// Cached sprite geometry must preserve every original placement and color phase,
+// including seven shifts, arbitrary overlays, and the status area's placement.
 #[test]
-fn sprite_shifts_and_draw_erase_match_original_packed_graphics() {
-    for sprite in 0..104 {
+fn sprite_geometry_and_composition_match_original_visible_graphics() {
+    for sprite in 0..102 {
         for shift in 0..7 {
-            assert_eq!(
-                compute_shifted_sprite(sprite, shift),
-                lode_original::graphics::compute_shifted_sprite(sprite, shift)
-            );
+            let shifted = lode_original::graphics::compute_shifted_sprite(sprite, shift);
+            for (row, expected) in sprite_rows(sprite).into_iter().enumerate() {
+                let bytes = &shifted[row * 3..row * 3 + 3];
+                let pixels = u32::from(bytes[0] & 127)
+                    | u32::from(bytes[1] & 127) << 7
+                    | u32::from(bytes[2] & 127) << 14;
+                assert_eq!(pixels >> shift, u32::from(expected));
+                assert!(
+                    bytes
+                        .iter()
+                        .take(if shift >= 5 { 3 } else { 2 })
+                        .all(|byte| byte & 128 != 0)
+                );
+            }
         }
     }
     let mut old = lode_original::devices::hires::Hires::default();
-    let mut new = lode_port::devices::hires::Hires::default();
+    let mut new = Scene::default();
     for (sprite, col, row) in [
         (0, 0, 0),
         (9, 8, 5),
         (37, 27, 15),
         (68, 5, 16),
-        (103, 26, 11),
+        (101, 26, 11),
     ] {
-        draw_sprite(&mut new, 1, sprite, col, row);
+        new.tile(Layer::Background, sprite, col, row);
         lode_original::graphics::draw_sprite(&mut old, 1, sprite, col, row);
-        overlay_sprite_at_pixels(&mut new, sprite, col * 5, row * 11);
+        new.overlay(sprite, col * 5, row * 11);
         lode_original::graphics::draw_sprite_at_pixels(&mut old, sprite, col * 5, row * 11);
-        for address in 0x2000..0x6000 {
-            assert_eq!(new.read(address), old.read(address));
-        }
-        erase_sprite_at_pixels(&mut new, sprite, col * 5, row * 11);
+        support::assert_visible(&new, &old);
+        new.erase(sprite, col * 5, row * 11);
         lode_original::graphics::erase_sprite_at_pixels(&mut old, sprite, col * 5, row * 11);
     }
-    for address in 0x2000..0x6000 {
-        assert_eq!(new.read(address), old.read(address));
-    }
+    support::assert_visible(&new, &old);
 }
 
 #[test]
@@ -239,20 +242,16 @@ fn lifecycle_and_digging_preserve_complete_frames_and_occurrences() {
                 old.game.snapshot(),
                 "lifecycle turn {turn}"
             );
-            for address in 0x2000..0x6000 {
+            support::assert_visible(&new.game.scene, &old.game.hires);
+            new.game.display.prepare(&new.game.scene);
+            for row in 0..192 {
                 assert_eq!(
-                    new.game.hires.read(address),
-                    old.game.hires.read(address),
-                    "turn {turn}, hires {address:04x}"
-                );
-            }
-            for row in [0, 55, 110, 176] {
-                assert_eq!(
-                    new.game.hires.rgb_row(row),
+                    &new.game.display.pixels()[row * 840..(row + 1) * 840],
                     old.game.hires.rgb_row(row),
                     "selected page row {row}"
                 );
             }
+            new.game.display.acknowledge(&mut new.game.scene);
         }
         let old_trace = old.trace().unwrap();
         let mut new_trace = new.trace().unwrap();

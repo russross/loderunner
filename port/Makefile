@@ -27,3 +27,7 @@ test-timing:
 .PHONY: test-collision
 test-collision:
 	cargo test -p lode-port --test collision -- --nocapture
+
+.PHONY: test-render-sdl
+test-render-sdl:
+	SDL_VIDEODRIVER=dummy cargo test -p lode-port --test render sdl_partial_texture_updates_match_the_rgb_cache -- --include-ignored --test-threads=1

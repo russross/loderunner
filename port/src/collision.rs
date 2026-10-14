@@ -1,14 +1,26 @@
-//! Local shape composition for contact, independent of packed display memory.
-use crate::graphics::{
-    compute_shifted_sprite, draw_sprite, erase_sprite_at_pixels, overlay_sprite_at_pixels,
-};
-use crate::state::Game;
+//! Local shape composition shared by contact and incremental sprite rendering.
+use crate::graphics::sprite_rows;
 use std::sync::OnceLock;
 
 const COLUMNS: usize = 28;
 const ROWS: usize = 18;
 const FULL: u128 = (1 << 110) - 1;
 const ROW_STARTS: u128 = FULL / 1023;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layer {
+    Foreground,
+    Background,
+}
+
+impl Layer {
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Foreground => 0,
+            Self::Background => 1,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shape(u128);
@@ -20,12 +32,9 @@ impl Shape {
         static SHAPES: OnceLock<[Shape; 102]> = OnceLock::new();
         SHAPES.get_or_init(|| {
             std::array::from_fn(|sprite| {
-                let block = compute_shifted_sprite(sprite as u8, 0);
                 let mut bits = 0;
-                for (row, bytes) in block.as_chunks::<3>().0.iter().enumerate() {
-                    let pixels = u128::from(bytes[0] & 0x7f)
-                        | u128::from(bytes[1] & 0x7f) << 7
-                        | u128::from(bytes[2] & 0x7f) << 14;
+                for (row, pixels) in sprite_rows(sprite as u8).into_iter().enumerate() {
+                    let pixels = u128::from(pixels);
                     assert!(pixels < 1024);
                     bits |= pixels << (row * 10);
                 }
@@ -73,8 +82,8 @@ impl Shape {
     }
 }
 
-// Background and contrast retain all contact-relevant history without assigning
-// pixel ownership. Contrast includes both extra ink and missing background ink.
+// Background and contrast retain contact and visible ink without assigning pixel
+// ownership. Contrast includes both extra ink and missing background ink.
 #[derive(Clone, Copy, Debug, Default)]
 struct ContactCell {
     background: Shape,
@@ -84,12 +93,14 @@ struct ContactCell {
 #[derive(Clone)]
 pub struct Scene {
     cells: Box<[ContactCell]>,
+    dirty: Box<[[bool; COLUMNS * ROWS]; 2]>,
 }
 
 impl Default for Scene {
     fn default() -> Self {
         Self {
             cells: vec![ContactCell::default(); COLUMNS * ROWS].into_boxed_slice(),
+            dirty: Box::new([[false; COLUMNS * ROWS]; 2]),
         }
     }
 }
@@ -97,7 +108,7 @@ impl Default for Scene {
 impl Scene {
     pub fn contact(&self, sprite: u8, half_x: u8, y: u8) -> bool {
         let shape = Shape::sprite(sprite);
-        let (x, y) = (i16::from(half_x) * 2, i16::from(y));
+        let (x, y) = Self::coordinates(half_x, y);
         Self::nearby(x, y, 10, |index, cx, cy| {
             self.cells[index]
                 .contrast
@@ -109,11 +120,12 @@ impl Scene {
     // that ink and background. Terrain-covered actor pixels are not contacts.
     pub fn overlay(&mut self, sprite: u8, half_x: u8, y: u8) {
         let shape = Shape::sprite(sprite);
-        let (x, y) = (i16::from(half_x) * 2, i16::from(y));
+        let (x, y) = Self::coordinates(half_x, y);
         Self::nearby(x, y, 10, |index, cx, cy| {
             let ink = shape.translated(x - cx, y - cy).0;
-            let cell = &mut self.cells[index];
-            cell.contrast.0 = (cell.contrast.0 & !ink) | (ink & !cell.background.0);
+            let cell = self.cells[index];
+            let contrast = (cell.contrast.0 & !ink) | (ink & !cell.background.0);
+            self.update(index, cell.background, Shape(contrast));
             false
         });
     }
@@ -122,42 +134,53 @@ impl Scene {
     // seven-pixel groups. The restoration span affects empty sprites too.
     pub fn erase(&mut self, sprite: u8, half_x: u8, y: u8) {
         let shape = Shape::sprite(sprite);
-        let (x, y) = (i16::from(half_x) * 2, i16::from(y));
+        let (x, y) = Self::coordinates(half_x, y);
         let left = x / 7 * 7;
         let width = if x % 7 >= 5 { 21 } else { 14 };
         Self::nearby(left, y, width, |index, cx, cy| {
             let ink = shape.translated(x - cx, y - cy).0;
             let restored = Shape::rectangle(left - cx, y - cy, left + width - cx, y + 11 - cy).0;
-            let cell = &mut self.cells[index];
-            cell.contrast.0 &= !(ink | (cell.background.0 & restored));
+            let cell = self.cells[index];
+            let contrast = cell.contrast.0 & !(ink | (cell.background.0 & restored));
+            self.update(index, cell.background, Shape(contrast));
             false
         });
     }
 
-    pub fn tile(&mut self, page: usize, sprite: u8, col: u8, row: u8) {
+    pub fn tile(&mut self, layer: Layer, sprite: u8, col: u8, row: u8) {
+        assert!(col < 28 && row < 17);
         let shape = Shape::sprite(sprite);
         let x = i16::from(col) * 10;
         // Status glyphs sit below the border rather than continuing the board
         // grid. Their replacement rectangle crosses two local scene rows.
         let y = if row == 16 { 181 } else { i16::from(row) * 11 };
         Self::nearby(x, y, 10, |index, cx, cy| {
-            let cell = &mut self.cells[index];
+            let cell = self.cells[index];
             let ink = shape.translated(x - cx, y - cy).0;
             let area = Shape::rectangle(x - cx, y - cy, x + 10 - cx, y + 11 - cy).0;
-            if page == 0 {
-                cell.contrast.0 = (cell.contrast.0 & !area) | ((ink ^ cell.background.0) & area);
-            } else {
-                cell.contrast.0 ^= (cell.background.0 ^ ink) & area;
-                cell.background.0 = (cell.background.0 & !area) | ink;
-            }
+            let (background, contrast) = match layer {
+                Layer::Foreground => (
+                    cell.background.0,
+                    (cell.contrast.0 & !area) | ((ink ^ cell.background.0) & area),
+                ),
+                Layer::Background => (
+                    (cell.background.0 & !area) | ink,
+                    cell.contrast.0 ^ ((cell.background.0 ^ ink) & area),
+                ),
+            };
+            self.update(index, Shape(background), Shape(contrast));
             false
         });
     }
 
     pub fn clear_background(&mut self) {
-        for cell in &mut self.cells {
-            cell.contrast.0 ^= cell.background.0;
-            cell.background = Shape::default();
+        for index in 0..self.cells.len() {
+            let cell = self.cells[index];
+            self.update(
+                index,
+                Shape::default(),
+                Shape(cell.contrast.0 ^ cell.background.0),
+            );
         }
     }
 
@@ -172,10 +195,64 @@ impl Scene {
                 row |= u128::from((pattern >> (x % 7)) & 1 != 0) << local_x;
             }
             let ink = row * ((1 << 40) - 1) / 1023;
-            let cell = &mut self.cells[16 * COLUMNS + col];
+            let index = 16 * COLUMNS + col;
+            let cell = self.cells[index];
             let area = (1 << 40) - 1;
-            cell.contrast.0 = (cell.contrast.0 & !area) | ((ink ^ cell.background.0) & area);
+            let contrast = (cell.contrast.0 & !area) | ((ink ^ cell.background.0) & area);
+            self.update(index, cell.background, Shape(contrast));
         }
+    }
+
+    // Layer damage follows actual ink changes. Replacing background may change
+    // contrast while leaving the visible foreground completely unchanged.
+    fn update(&mut self, index: usize, background: Shape, contrast: Shape) {
+        let old = self.cells[index];
+        self.dirty[Layer::Foreground.index()][index] |=
+            old.background.0 ^ old.contrast.0 != background.0 ^ contrast.0;
+        self.dirty[Layer::Background.index()][index] |= old.background != background;
+        self.cells[index] = ContactCell {
+            background,
+            contrast,
+        };
+    }
+
+    pub fn dirty_cells(&self, layer: Layer) -> &[bool] {
+        &self.dirty[layer.index()]
+    }
+
+    pub fn acknowledge(&mut self, layer: Layer) {
+        self.dirty[layer.index()].fill(false);
+    }
+
+    // A visible row gathers ten-bit runs from the local shapes. Five words hold
+    // the whole 280-pixel row without scanline or seven-pixel byte addressing.
+    pub fn row_bits(&self, layer: Layer, row: usize) -> [u64; 5] {
+        assert!(row < 192);
+        let mut words = [0; 5];
+        for col in 0..COLUMNS {
+            let cell = self.cells[row / 11 * COLUMNS + col];
+            let ink = match layer {
+                Layer::Foreground => cell.background.0 ^ cell.contrast.0,
+                Layer::Background => cell.background.0,
+            };
+            let bits = ((ink >> (row % 11 * 10)) & 1023) as u64;
+            let offset = col * 10;
+            words[offset / 64] |= bits << (offset % 64);
+            if offset % 64 > 54 {
+                words[offset / 64 + 1] |= bits >> (64 - offset % 64);
+            }
+        }
+        words
+    }
+
+    // Accepted placements include visible right-edge spill. Wrapped coordinates
+    // remain invalid rather than being interpreted as unrelated scene locations.
+    fn coordinates(half_x: u8, y: u8) -> (i16, i16) {
+        assert!(
+            half_x < 140 && y <= 181,
+            "sprite placement outside the supported display"
+        );
+        (i16::from(half_x) * 2, i16::from(y))
     }
 
     // Only cells touched by a shape or restoration rectangle are visited. Actor
@@ -212,22 +289,5 @@ impl Scene {
             }
         }
         false
-    }
-}
-
-impl Game {
-    pub fn paint_tile(&mut self, page: usize, sprite: u8, col: u8, row: u8) {
-        self.contacts.tile(page, sprite, col, row);
-        draw_sprite(&mut self.hires, page, sprite, col, row);
-    }
-
-    pub fn overlay_shape(&mut self, sprite: u8, half_x: u8, y: u8) {
-        self.contacts.overlay(sprite, half_x, y);
-        overlay_sprite_at_pixels(&mut self.hires, sprite, half_x, y);
-    }
-
-    pub fn erase_shape(&mut self, sprite: u8, half_x: u8, y: u8) {
-        self.contacts.erase(sprite, half_x, y);
-        erase_sprite_at_pixels(&mut self.hires, sprite, half_x, y);
     }
 }

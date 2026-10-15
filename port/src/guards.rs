@@ -3,6 +3,7 @@ use crate::animation::GuardFrame;
 use crate::board::Board;
 use crate::collision::Layer;
 use crate::event_timing::TimingEvent;
+use crate::graphics::Sprite;
 use crate::player::Journal;
 use crate::routing;
 use crate::sound::Note;
@@ -11,7 +12,7 @@ use lode_trace::{ActorId, Cell, Facing, Motion, Occurrence, Subject, Tile};
 use std::num::NonZeroU8;
 
 impl Game {
-    fn guard_coordinates(&self, guard: Guard) -> (u8, u8, u8) {
+    fn guard_coordinates(&self, guard: Guard) -> (Sprite, u8, u8) {
         let (half_x, y) = guard.position.half_x_and_pixel_y();
         (guard.animation.sprite(), half_x, y)
     }
@@ -114,8 +115,8 @@ impl Game {
             drop_in: NonZeroU8::new(self.resurrection_col + 1).expect("gold drop delay"),
         };
         self.board.terrain[Board::index(cell)] = Tile::Empty;
-        self.paint_tile(Layer::Background, 0, cell.col, cell.row);
-        self.erase_shape(7, cell.col * 5, cell.row * 11);
+        self.paint_cell(Layer::Background, Sprite::EMPTY, cell);
+        self.erase_cell(Sprite::GOLD, cell);
         journal.push((Subject::Actor(guard.id.actor()), Occurrence::GoldCollected));
     }
 
@@ -133,8 +134,8 @@ impl Game {
         }
         guard.mode = GuardMode::Roaming;
         self.board.terrain[Board::index(cell)] = Tile::Gold;
-        self.paint_tile(Layer::Background, 7, cell.col, cell.row);
-        self.overlay_shape(7, cell.col * 5, cell.row * 11);
+        self.paint_cell(Layer::Background, Sprite::GOLD, cell);
+        self.overlay_cell(Sprite::GOLD, cell);
         journal.push((
             Subject::Actor(guard.id.actor()),
             Occurrence::GoldDropped { cell },
@@ -192,8 +193,8 @@ impl Game {
                 if self.board.terrain_at(previous) == Tile::Empty {
                     self.board.terrain[Board::index(previous)] = Tile::Gold;
                     self.board.occupy(previous, Tile::Gold);
-                    self.paint_tile(Layer::Background, 7, previous.col, previous.row);
-                    self.overlay_shape(7, previous.col * 5, previous.row * 11);
+                    self.paint_cell(Layer::Background, Sprite::GOLD, previous);
+                    self.overlay_cell(Sprite::GOLD, previous);
                     journal.push((
                         Subject::Actor(guard.id.actor()),
                         Occurrence::GoldDropped { cell: previous },
@@ -397,8 +398,8 @@ impl Game {
                     continue;
                 }
                 self.board.occupy(cell, Tile::Guard);
-                self.paint_tile(Layer::Background, 0, cell.col, cell.row);
-                self.paint_tile(Layer::Foreground, 8, cell.col, cell.row);
+                self.paint_cell(Layer::Background, Sprite::EMPTY, cell);
+                self.paint_cell(Layer::Foreground, GuardFrame::WalkLeft1.sprite(), cell);
                 guard.mode = GuardMode::Roaming;
                 self.sound.append_notes(&[
                     Note {
@@ -423,10 +424,13 @@ impl Game {
                     appear_in: NonZeroU8::new(remaining).expect("pending resurrection"),
                 };
                 if matches!(remaining, 19 | 10) {
-                    let sprite = if remaining == 19 { 0x39 } else { 0x3a };
-                    self.paint_tile(Layer::Background, sprite, cell.col, cell.row);
-                    let (x, y) = guard.position.half_x_and_pixel_y();
-                    self.overlay_shape(sprite, x, y);
+                    let sprite = if remaining == 19 {
+                        Sprite::RESURRECT_FIRST
+                    } else {
+                        Sprite::RESURRECT_SECOND
+                    };
+                    self.paint_cell(Layer::Background, sprite, cell);
+                    self.overlay_cell(sprite, cell);
                 }
             }
             self.guards[index] = guard;

@@ -1,6 +1,5 @@
 //! Local shape composition shared by contact and incremental sprite rendering.
-use crate::graphics::sprite_rows;
-use std::sync::OnceLock;
+use crate::assets::SHAPE_MASKS;
 
 const COLUMNS: usize = 28;
 const ROWS: usize = 18;
@@ -27,20 +26,7 @@ pub struct Shape(u128);
 
 impl Shape {
     pub fn sprite(sprite: u8) -> Self {
-        // Sprites 102 and 103 are non-gameplay image data wider than a cell.
-        // Gameplay, score text and transitions use only sprites zero through 101.
-        static SHAPES: OnceLock<[Shape; 102]> = OnceLock::new();
-        SHAPES.get_or_init(|| {
-            std::array::from_fn(|sprite| {
-                let mut bits = 0;
-                for (row, pixels) in sprite_rows(sprite as u8).into_iter().enumerate() {
-                    let pixels = u128::from(pixels);
-                    assert!(pixels < 1024);
-                    bits |= pixels << (row * 10);
-                }
-                Shape(bits)
-            })
-        })[usize::from(sprite)]
+        Self(SHAPE_MASKS[usize::from(sprite)])
     }
 
     // A whole shape moves between local coordinate systems in one shift. Source

@@ -4,7 +4,7 @@ use crate::board::Board;
 use crate::collision::Layer;
 use crate::devices::keyboard::Control;
 use crate::event_timing::TimingEvent;
-use crate::graphics::{DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS};
+use crate::graphics::{DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS, Sprite};
 use crate::sound::{DIG_NOTES, Note, play_note};
 use crate::state::Game;
 use lode_trace::{ActorId, Cell, Facing, Input, Motion, Occurrence, Phase, Subject, Tile};
@@ -140,7 +140,7 @@ impl Game {
     }
     pub fn draw_player(&mut self) {
         let (sprite, x, y) = self.player_sprite_coordinates();
-        let contact = self.scene.contact(sprite, x, y);
+        let contact = self.scene.contact(sprite.id(), x, y);
         self.overlay_shape(sprite, x, y);
         if contact && !self.player.collected_gold {
             self.player.alive = false;
@@ -157,9 +157,8 @@ impl Game {
         self.player.collected_gold = true;
         self.gold.remove_one();
         self.board.terrain[Board::index(position.cell)] = Tile::Empty;
-        let Cell { col, row } = position.cell;
-        self.paint_tile(Layer::Background, 0, col, row);
-        self.erase_shape(7, col * 5, row * 11);
+        self.paint_cell(Layer::Background, Sprite::EMPTY, position.cell);
+        self.erase_cell(Sprite::GOLD, position.cell);
         self.add_score(250);
         self.sound.append_notes(&[
             Note {
@@ -335,9 +334,9 @@ impl Game {
             DigSide::Right => &RIGHT_DIG_DEBRIS,
         };
         if self.board.at(adjacent) != Tile::Empty {
-            self.paint_tile(Layer::Foreground, 1, hole.col, hole.row);
+            self.paint_cell(Layer::Foreground, Sprite::BRICK, hole);
             if dig.stage() != 0 {
-                self.erase_shape(debris[stage - 1], adjacent.col * 5, cell.row * 11);
+                self.erase_cell(debris[stage - 1], adjacent);
             }
             self.player.digging = None;
             return Ok(());
@@ -358,10 +357,10 @@ impl Game {
             return Ok(());
         }
         if dig.stage() != 0 {
-            self.erase_shape(debris[stage - 1], adjacent.col * 5, cell.row * 11);
+            self.erase_cell(debris[stage - 1], adjacent);
         }
-        self.overlay_shape(debris[stage], adjacent.col * 5, cell.row * 11);
-        self.paint_tile(Layer::Foreground, DIG_BRICKS[stage], hole.col, hole.row);
+        self.overlay_cell(debris[stage], adjacent);
+        self.paint_cell(Layer::Foreground, DIG_BRICKS[stage], hole);
         dig.advance();
         self.player.digging = Some(dig);
         Ok(())
@@ -370,9 +369,16 @@ impl Game {
     fn open_hole(&mut self, cell: Cell) {
         self.player.digging = None;
         self.board.occupy(cell, Tile::Empty);
-        self.paint_tile(Layer::Foreground, 0, cell.col, cell.row);
-        self.paint_tile(Layer::Background, 0, cell.col, cell.row);
-        self.paint_tile(Layer::Foreground, 0, cell.col, cell.row - 1);
+        self.paint_cell(Layer::Foreground, Sprite::EMPTY, cell);
+        self.paint_cell(Layer::Background, Sprite::EMPTY, cell);
+        self.paint_cell(
+            Layer::Foreground,
+            Sprite::EMPTY,
+            Cell {
+                row: cell.row - 1,
+                ..cell
+            },
+        );
         self.holes.open(cell);
     }
 }

@@ -1,4 +1,5 @@
 //! Event counts describe work executed during an interval independently of its clock.
+use crate::assets::SPRITE_SETUP_CYCLES;
 use crate::devices::speaker::Speaker;
 use crate::routing::SearchWork;
 use crate::sound::{NoteWork, render_note};
@@ -237,27 +238,26 @@ impl Model {
     }
 
     fn draw_cost(&self, draw: Draw) -> u64 {
-        let shifted = 1824
-            + (0..22)
-                .filter(|plane| (plane * 104) % 256 + u64::from(draw.sprite) >= 256)
-                .count() as u64;
-        let row_crossings = (draw.y..draw.y + 11)
-            .map(|row| u64::from(row >= 123) + u64::from(row >= 187))
-            .sum::<u64>();
+        // Fixed reference costs depend on sprite identity and placement, never
+        // on the host renderer. Threshold overlap accounts for all eleven rows
+        // at once, including the status baseline near the bottom of the display.
+        let shifted = u64::from(SPRITE_SETUP_CYCLES[usize::from(draw.sprite)]);
+        let end = u64::from(draw.y) + 11;
+        let row_crossings = end.saturating_sub(123).min(11) + end.saturating_sub(187).min(11);
         let wide = (u16::from(draw.half_x) * 2 % 7) >= 5;
         match draw.kind {
-            DrawKind::Tile => 125 + shifted + 253 + row_crossings + 11 * if wide { 81 } else { 69 },
+            DrawKind::Tile => shifted + row_crossings + if wide { 1269 } else { 1137 },
             DrawKind::Actor => {
-                69 + u64::from(draw.half_x >= 102)
+                u64::from(draw.half_x >= 102)
                     + shifted
                     + 2 * row_crossings
-                    + 11 * if wide { 170 } else { 133 }
+                    + if wide { 1939 } else { 1532 }
             }
             DrawKind::Erase => {
-                66 + u64::from(draw.half_x >= 102)
+                u64::from(draw.half_x >= 102)
                     + shifted
                     + 2 * row_crossings
-                    + 11 * if wide { 131 } else { 107 }
+                    + if wide { 1507 } else { 1243 }
             }
         }
     }

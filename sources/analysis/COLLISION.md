@@ -1,6 +1,8 @@
 Object-level collision analysis
 ===============================
 
+Reference shape masks are generated at build time alongside the sprite rows. Gameplay uses named sprite identities and cell-based appearance operations; the scene consumes reference geometry independently of RGB presentation.
+
 The native port has two independent contact mechanisms. Logical occupancy detects a guard entering a player cell and a closing hole containing the player. Player redraw queries a local shape-composition scene, independently of rendering. The unchanged `port-original` supplies the packed-framebuffer reference detector. The native model retains background and contrast shapes per local cell, rather than trying to assign every surviving pixel to an actor. This captures contact-relevant history without scanline addresses, color phases, or a table of animation-pair outcomes.
 
 

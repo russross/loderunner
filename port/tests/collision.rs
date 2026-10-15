@@ -229,7 +229,7 @@ fn intact_guard_contact(game: &Game, sprite: u8, x: u8, y: u8, terrain: bool) ->
         if dx.abs() >= 10 || dy.abs() >= 11 {
             return false;
         }
-        let shape = rows(guard.animation.sprite());
+        let shape = rows(guard.animation.sprite().id());
         (0i16..11).any(|row| {
             let guard_row = row - dy;
             if !(0..11).contains(&guard_row) {
@@ -282,6 +282,7 @@ fn forced_probes_from_reached_states_match_scene_while_pose_only_does_not() {
             // Inspect the proposed new player after erasing its old shape. The
             // scenario is a forced contact experiment, not a committed game turn.
             let (sprite, x, y) = run.game.player_sprite_coordinates();
+            let sprite = sprite.id();
             let mut scene = run.game.scene.clone();
             scene.erase(sprite, x, y);
             let mut probe = Reference::new();

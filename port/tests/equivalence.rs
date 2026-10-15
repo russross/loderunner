@@ -1,15 +1,78 @@
+use lode_original::devices::hires::Hires;
+use lode_original::graphics::{draw_sprite, draw_sprite_at_pixels, erase_sprite_at_pixels};
 use lode_original::session::{Configuration as OriginalConfiguration, Run as OriginalRun};
 use lode_port::collision::{Layer, Scene};
 use lode_port::devices::speaker::Speaker;
-use lode_port::event_timing::{Model, TimingInterval};
+use lode_port::event_timing::{Draw, DrawKind, Events, Model, TimingEvent, TimingInterval};
 use lode_port::graphics::sprite_rows;
 use lode_port::session::{Configuration, Run};
 use lode_port::sound::play_note;
 use lode_port::storage::{LevelRecord, original_level};
 use lode_port::timing::Clock;
 use lode_trace::Phase;
+use std::collections::BTreeMap;
 
 mod support;
+
+// Whole-sprite costs preserve the reference's alignment and page-boundary
+// effects without executing per-plane or per-scanline loops in the model.
+#[test]
+fn reference_draw_costs_cover_alignment_and_vertical_boundaries() {
+    let model = Model {
+        coefficients: BTreeMap::from([(TimingEvent::GraphicsCycles, 1.0)]),
+    };
+    let mut original = Hires::default();
+    let estimate = |draw| {
+        let mut events = Events::default();
+        events.draw(draw);
+        model.estimate(&TimingInterval {
+            phase: Phase::Playing,
+            end_phase: Phase::Playing,
+            events,
+        })
+    };
+    for sprite in 0..102 {
+        for half_x in [0, 1, 2, 3, 4, 5, 6, 101, 102, 103, 136, 139] {
+            for y in [0, 112, 113, 122, 123, 176, 177, 181] {
+                draw_sprite_at_pixels(&mut original, sprite, half_x, y);
+                assert_eq!(
+                    estimate(Draw {
+                        kind: DrawKind::Actor,
+                        sprite,
+                        half_x,
+                        y
+                    }),
+                    original.take_cycles()
+                );
+                erase_sprite_at_pixels(&mut original, sprite, half_x, y);
+                assert_eq!(
+                    estimate(Draw {
+                        kind: DrawKind::Erase,
+                        sprite,
+                        half_x,
+                        y
+                    }),
+                    original.take_cycles()
+                );
+            }
+        }
+        // Tile placement uses its own cost and the status row's lower baseline.
+        for col in 0..28 {
+            for row in [0, 10, 11, 15, 16] {
+                draw_sprite(&mut original, 0, sprite, col, row);
+                assert_eq!(
+                    estimate(Draw {
+                        kind: DrawKind::Tile,
+                        sprite,
+                        half_x: col * 5,
+                        y: if row == 16 { 181 } else { row * 11 }
+                    }),
+                    original.take_cycles()
+                );
+            }
+        }
+    }
+}
 
 // Independent gameplay execution must produce the same workload for the native
 // model, even though the baseline also collects unused branch-level features.

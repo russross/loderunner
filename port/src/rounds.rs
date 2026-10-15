@@ -1,10 +1,11 @@
-use crate::board::GoldProgress;
+use crate::board::{Board, GoldProgress};
 use crate::collision::Layer;
 use crate::event_timing::{SoundSection, TimingEvent};
+use crate::graphics::Sprite;
 use crate::player::Journal;
 use crate::sound::play_note;
 use crate::state::Game;
-use lode_trace::{ActorId, Cell, Input, Occurrence, Phase, Subject, Tile};
+use lode_trace::{ActorId, Input, Occurrence, Phase, Subject, Tile};
 use std::num::NonZeroU8;
 
 impl Game {
@@ -92,18 +93,20 @@ impl Game {
             };
             self.clock.events.add(TimingEvent::ActiveHole, 1);
             let remaining = hole.remaining.get() - 1;
-            let Cell { col, row } = hole.cell;
             if let Some(timer) = NonZeroU8::new(remaining) {
                 hole.remaining = timer;
                 self.holes.entries[slot] = Some(hole);
                 if matches!(remaining, 20 | 10) {
-                    self.paint_tile(
+                    self.paint_cell(
                         Layer::Background,
-                        if remaining == 20 { 0x37 } else { 0x38 },
-                        col,
-                        row,
+                        if remaining == 20 {
+                            Sprite::REFILL_FIRST
+                        } else {
+                            Sprite::REFILL_SECOND
+                        },
+                        hole.cell,
                     );
-                    self.erase_shape(0, col * 5, row * 11);
+                    self.erase_cell(Sprite::EMPTY, hole.cell);
                 }
                 continue;
             }
@@ -111,9 +114,9 @@ impl Game {
             match self.board.at(hole.cell) {
                 Tile::Guard => {
                     self.board.occupy(hole.cell, Tile::Brick);
-                    self.board.terrain[usize::from(row) * 28 + usize::from(col)] = Tile::Brick;
-                    self.paint_tile(Layer::Foreground, 1, col, row);
-                    self.paint_tile(Layer::Background, 1, col, row);
+                    self.board.terrain[Board::index(hole.cell)] = Tile::Brick;
+                    self.paint_cell(Layer::Foreground, Sprite::BRICK, hole.cell);
+                    self.paint_cell(Layer::Background, Sprite::BRICK, hole.cell);
                     self.bury_guard(hole.cell, journal)?;
                     continue;
                 }
@@ -130,8 +133,8 @@ impl Game {
                 _ => (),
             }
             self.board.occupy(hole.cell, Tile::Brick);
-            self.paint_tile(Layer::Foreground, 1, col, row);
-            self.paint_tile(Layer::Background, 1, col, row);
+            self.paint_cell(Layer::Foreground, Sprite::BRICK, hole.cell);
+            self.paint_cell(Layer::Background, Sprite::BRICK, hole.cell);
         }
         Ok(())
     }
@@ -149,8 +152,8 @@ impl Game {
             if self.board.at(cell) == Tile::Empty {
                 self.board.occupy(cell, Tile::Ladder);
             }
-            self.paint_tile(Layer::Background, 3, cell.col, cell.row);
-            self.overlay_shape(3, cell.col * 5, cell.row * 11);
+            self.paint_cell(Layer::Background, Sprite::LADDER, cell);
+            self.overlay_cell(Sprite::LADDER, cell);
             self.hidden_ladders.remove(slot);
         }
         if !blocked {

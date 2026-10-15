@@ -1,26 +1,13 @@
 use crate::collision::Layer;
 use crate::event_timing::TimingEvent;
+use crate::graphics::Sprite;
 use crate::score::Score;
 use crate::state::Game;
-use lode_trace::Tile;
 
 impl Game {
     pub fn put_text(&mut self, layer: Layer, col: u8, row: u8, text: &str) {
         for (offset, byte) in text.bytes().enumerate() {
-            let sprite = match byte {
-                b'A'..=b'Z' => byte - b'A' + 69,
-                b'0'..=b'9' => byte - b'0' + 59,
-                b' ' => 0,
-                b'>' => 95,
-                b'.' => 96,
-                b'(' => 97,
-                b')' => 98,
-                b'/' => 99,
-                b'-' => 100,
-                b'<' => 101,
-                _ => 0,
-            };
-            self.paint_tile(layer, sprite, col + offset as u8, row);
+            self.paint_tile(layer, Sprite::glyph(byte), col + offset as u8, row);
         }
     }
 
@@ -46,7 +33,12 @@ impl Game {
     fn paint_score(&mut self, score: Score) {
         self.clock.events.add(TimingEvent::Score, 1);
         for (index, digit) in score.visible_digits().into_iter().enumerate() {
-            self.paint_tile(Layer::Foreground, 0x3b + digit, 5 + index as u8, 16);
+            self.paint_tile(
+                Layer::Foreground,
+                Sprite::glyph(b'0' + digit),
+                5 + index as u8,
+                16,
+            );
         }
     }
 
@@ -77,12 +69,7 @@ impl Game {
         for row in (0..16).rev() {
             for col in (0..28).rev() {
                 let tile = self.board.terrain[usize::from(row) * 28 + usize::from(col)];
-                self.paint_tile(
-                    Layer::Background,
-                    if tile == Tile::Trap { 1 } else { tile as u8 },
-                    col,
-                    row,
-                );
+                self.paint_tile(Layer::Background, Sprite::tile(tile), col, row);
             }
         }
         self.display.select(Layer::Foreground);

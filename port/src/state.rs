@@ -3,6 +3,7 @@ use crate::board::{Board, GoldProgress, Holes, Level};
 use crate::collision::{Layer, Scene};
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
+use crate::graphics::Sprite;
 use crate::render::Display;
 use crate::score::Score;
 use crate::sound::Sound;
@@ -152,12 +153,7 @@ impl Game {
                 (Layer::Foreground, self.board.cells[index]),
                 (Layer::Background, self.board.terrain[index]),
             ] {
-                self.paint_tile(
-                    layer,
-                    if tile == Tile::Trap { 1 } else { tile as u8 },
-                    cell.col,
-                    cell.row,
-                );
+                self.paint_cell(layer, Sprite::tile(tile), cell);
             }
         }
         let (sprite, x, y) = self.player_sprite_coordinates();
@@ -165,7 +161,7 @@ impl Game {
         self.paint_status(self.session.level, 5, Score::default());
     }
 
-    pub fn player_sprite_coordinates(&self) -> (u8, u8, u8) {
+    pub fn player_sprite_coordinates(&self) -> (Sprite, u8, u8) {
         let (half_x, y) = self.player.position.half_x_and_pixel_y();
         (self.player.animation.sprite(), half_x, y)
     }

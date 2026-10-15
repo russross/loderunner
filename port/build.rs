@@ -48,6 +48,8 @@ fn generate() -> Result<(), String> {
         "// Generated from the pinned reference; edit build.rs or the reference inputs.\n",
     );
     output.push_str("pub const SPRITE_ROWS: [[u16; 11]; 102] = [\n");
+    let mut shapes = Vec::new();
+    let mut setup_cycles = Vec::new();
 
     // Original sprite identities remain stable for timing calculations. Each row
     // becomes ten native ink bits, independent of machine pointers and shifts.
@@ -67,8 +69,26 @@ fn generate() -> Result<(), String> {
             }
         }
         writeln!(output, "{rows:?},").expect("writing generated string");
+        shapes.push(rows.iter().enumerate().fold(0_u128, |bits, (row, &ink)| {
+            bits | u128::from(ink) << (row * 10)
+        }));
+        // Setup time is fixed per reference sprite. Indexed table page crossings
+        // become asset metadata; runtime timing does not walk sprite planes.
+        setup_cycles.push(
+            1824 + (0..22)
+                .filter(|plane| (plane * 104) % 256 + sprite >= 256)
+                .count() as u16,
+        );
     }
-    output.push_str("];\npub static LEVEL_RECORDS: [[u8; 256]; 150] = [\n");
+    output.push_str("];\n");
+    writeln!(output, "pub const SHAPE_MASKS: [u128; 102] = {shapes:?};")
+        .expect("writing generated string");
+    writeln!(
+        output,
+        "pub const SPRITE_SETUP_CYCLES: [u16; 102] = {setup_cycles:?};"
+    )
+    .expect("writing generated string");
+    output.push_str("pub static LEVEL_RECORDS: [[u8; 256]; 150] = [\n");
 
     let mut tracks = Vec::new();
     for number in 3..=12 {

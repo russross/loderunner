@@ -1,5 +1,6 @@
 //! Player and guard frames keep separate sequences and original sprite identities.
 use crate::actors::Direction;
+use crate::graphics::Sprite;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -25,8 +26,8 @@ pub enum PlayerFrame {
 }
 
 impl PlayerFrame {
-    pub fn sprite(self) -> u8 {
-        self as u8
+    pub fn sprite(self) -> Sprite {
+        Sprite::reference(self as u8)
     }
 
     // Continuing a movement sequence advances its frame. Entering a different
@@ -69,8 +70,8 @@ pub enum GuardFrame {
 }
 
 impl GuardFrame {
-    pub fn sprite(self) -> u8 {
-        self as u8
+    pub fn sprite(self) -> Sprite {
+        Sprite::reference(self as u8)
     }
 
     // Guard frames follow their own walking, rope and climbing sequences. The

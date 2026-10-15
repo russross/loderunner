@@ -1,9 +1,16 @@
 use crate::assets::{HIGH_SCORES, LEVEL_RECORDS};
+use crate::board::Level;
 use lode_trace::{HighScore, Tile};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LevelRecord(pub [u8; 256]);
+
+impl LevelRecord {
+    pub fn decode(&self) -> Result<Level, String> {
+        Level::new(decode_level(&self.0))
+    }
+}
 
 impl Serialize for LevelRecord {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

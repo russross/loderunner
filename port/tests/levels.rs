@@ -1,12 +1,12 @@
 use lode_port::state::Game;
-use lode_port::storage::{decode_level, original_high_scores, original_level};
+use lode_port::storage::{LevelRecord, decode_level, original_high_scores, original_level};
 use lode_trace::{ActorId, Cell, Tile};
 
 #[test]
 fn all_original_levels_decode_and_initialize_observer_state() {
     for level in 1..=150 {
         let record = original_level(level).unwrap();
-        let game = Game::load_level(&record, level, false).unwrap();
+        let game = Game::load_level(&LevelRecord(record).decode().unwrap(), level, false);
         game.snapshot().validate().unwrap();
         assert!(game.guards.len() <= 5);
         assert!(game.hidden_ladders.len() <= 45);
@@ -34,7 +34,7 @@ fn reverse_scan_retains_last_player_and_numbers_guards_from_bottom_right() {
     let mut record = [0_u8; 256];
     record[0] = 0x89;
     record[223] = 0x98;
-    let game = Game::load_level(&record, 1, false).unwrap();
+    let game = Game::load_level(&LevelRecord(record).decode().unwrap(), 1, false);
     let state = game.snapshot();
     assert_eq!(state.actors[0].cell, Cell::new(27, 15).unwrap());
     assert_eq!(state.actors[1].id, ActorId::Guard(1));
@@ -54,5 +54,5 @@ fn decoder_discards_invalid_nibbles_and_ignores_sector_tail() {
     assert!(map[2..].iter().all(|tile| *tile == Tile::Empty));
     assert!(original_level(0).is_err());
     assert!(original_level(151).is_err());
-    assert!(Game::load_level(&[0; 256], 1, false).is_err());
+    assert!(LevelRecord([0; 256]).decode().is_err());
 }

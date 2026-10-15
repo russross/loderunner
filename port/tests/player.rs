@@ -1,6 +1,7 @@
 use lode_port::actors::Direction;
 use lode_port::score::Score;
 use lode_port::state::Game;
+use lode_port::storage::LevelRecord;
 use lode_trace::{Motion, Occurrence, Tile};
 
 fn board(player_col: usize, player_row: usize, tiles: &[(usize, usize, Tile)]) -> Game {
@@ -14,7 +15,7 @@ fn board(player_col: usize, player_row: usize, tiles: &[(usize, usize, Tile)]) -
         let shift = (index % 2) * 4;
         record[index / 2] = (record[index / 2] & !(15 << shift)) | ((tile as u8) << shift);
     }
-    Game::load_level(&record, 1, false).unwrap()
+    Game::load_level(&LevelRecord(record).decode().unwrap(), 1, false)
 }
 
 #[test]

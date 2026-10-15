@@ -28,27 +28,23 @@ impl Game {
         self.overlay_shape(sprite, x, y);
     }
 
-    // Difficulty selects a three-phase update pattern. Selected identities rotate
+    // Difficulty selects a three-phase update count. Selected identities rotate
     // through the concrete guards, stopping immediately when the player dies.
     pub fn update_guards(&mut self, journal: &mut Journal) -> Result<(), String> {
         if self.guards.is_empty() {
             return Ok(());
         }
-        let mut pattern = self
+        let updates = self
             .guard_schedule
-            .pattern(self.guards.len(), self.difficulty)?;
-        while pattern != 0 {
-            let selected = pattern & 1 != 0;
-            pattern >>= 1;
-            if selected {
-                let index = self.guard_schedule.next_guard(self.guards.len());
-                let mut guard = self.guards[index];
-                guard.motion = Motion::Standing;
-                self.update_guard(&mut guard, journal)?;
-                self.guards[index] = guard;
-                if !self.player.alive {
-                    break;
-                }
+            .updates(self.guards.len(), self.difficulty)?;
+        for _ in 0..updates {
+            let index = self.guard_schedule.next_guard(self.guards.len());
+            let mut guard = self.guards[index];
+            guard.motion = Motion::Standing;
+            self.update_guard(&mut guard, journal)?;
+            self.guards[index] = guard;
+            if !self.player.alive {
+                break;
             }
         }
         Ok(())
@@ -510,10 +506,7 @@ impl Game {
             if self.board.terrain[old] != Tile::Ladder {
                 return row;
             }
-            row = row.wrapping_sub(1);
-            if row == 0xff {
-                return 0xff;
-            }
+            row -= 1;
             let index = usize::from(row) * 28 + usize::from(col);
             self.clock.events.add(
                 TimingEvent::AbovePlayerProbe,

@@ -1,12 +1,11 @@
 use crate::actors::{DigSide, Guard, GuardId, GuardMode, GuardSchedule, Player};
-use crate::board::{Board, GoldProgress, Holes};
+use crate::board::{Board, GoldProgress, Holes, Level};
 use crate::collision::{Layer, Scene};
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
 use crate::render::Display;
 use crate::score::Score;
 use crate::sound::Sound;
-use crate::storage::decode_level;
 use crate::timing::Clock;
 use lode_trace::{
     Action, Actor, ActorId, Cell, Facing, HighScore, Hole, Life, Phase, Session, Snapshot, Tile,
@@ -61,28 +60,17 @@ impl Progress {
 }
 
 impl Game {
-    pub fn load_level(record: &[u8; 256], level: u8, paced: bool) -> Result<Self, String> {
-        let tiles = decode_level(record);
-        let index = tiles
-            .iter()
-            .rposition(|&tile| tile == Tile::Player)
-            .ok_or("level contains no player")?;
-        let cell = Cell {
-            col: (index % 28) as u8,
-            row: (index / 28) as u8,
-        };
+    pub fn load_level(board: &Level, level: u8, paced: bool) -> Self {
         let mut game = Self {
-            board: Board::new(tiles),
-            player: Player::new(cell, Facing::Right),
+            board: Board::new(board.tiles),
+            player: Player::new(board.player, Facing::Right),
             guards: Vec::new(),
             guard_schedule: GuardSchedule::default(),
             holes: Holes::default(),
             hidden_ladders: Vec::new(),
             session: Progress::new(level),
             score: Score::default(),
-            gold: GoldProgress::from_count(
-                tiles.iter().filter(|&&tile| tile == Tile::Gold).count() as u8,
-            ),
+            gold: board.gold,
             falling_sound: false,
             falling_pitch: 0x20,
             resurrection_col: 0,
@@ -99,36 +87,23 @@ impl Game {
             guard_facings: [Facing::Right; 5],
         };
         game.populate_board();
-        Ok(game)
+        game
     }
 
     // Loading replaces board-local state in place. The clock, speaker, score,
     // preferences and falling whistle keep their identities and pending work.
-    pub fn reload_board(&mut self, record: &[u8; 256]) -> Result<(), String> {
-        let tiles = decode_level(record);
-        let index = tiles
-            .iter()
-            .rposition(|&tile| tile == Tile::Player)
-            .ok_or("level contains no player")?;
+    pub fn reload_board(&mut self, board: &Level) {
         self.clock.flush_draws();
         for guard in &self.guards {
             self.guard_facings[guard.id.index()] = guard.facing;
         }
-        self.board = Board::new(tiles);
-        self.player = Player::new(
-            Cell {
-                col: (index % 28) as u8,
-                row: (index / 28) as u8,
-            },
-            self.player.facing,
-        );
+        self.board = Board::new(board.tiles);
+        self.player = Player::new(board.player, self.player.facing);
         self.guards.clear();
         self.guard_schedule.restart_roster();
         self.holes = Holes::default();
         self.hidden_ladders.clear();
-        self.gold = GoldProgress::from_count(
-            tiles.iter().filter(|&&tile| tile == Tile::Gold).count() as u8,
-        );
+        self.gold = board.gold;
         self.skip_level = false;
         self.keyboard = Keyboard::default();
         self.sound.clear();
@@ -136,7 +111,6 @@ impl Game {
         self.display = Display::default();
         self.session.exit_available = false;
         self.populate_board();
-        Ok(())
     }
 
     fn populate_board(&mut self) {

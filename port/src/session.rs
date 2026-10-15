@@ -1,13 +1,14 @@
 use crate::actors::Command;
+use crate::board::Level;
 use crate::devices::keyboard::{Control, LEFT_ARROW, RETURN, RIGHT_ARROW};
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::score::Score;
 use crate::sound::Note;
 use crate::state::{Game, Progress};
-use crate::storage::{LevelRecord, decode_level, original_high_scores, original_level};
+use crate::storage::{LevelRecord, original_high_scores, original_level};
 use lode_trace::{
-    FORMAT_VERSION, Header, HighScore, Input, Observer, Phase, Round, Snapshot, Tile, Trace,
+    FORMAT_VERSION, Header, HighScore, Input, Observer, Phase, Round, Snapshot, Trace,
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,22 +36,18 @@ impl Configuration {
         })
     }
 
-    pub fn validate(&self) -> Result<(), String> {
+    fn decode_levels(&self) -> Result<Vec<Level>, String> {
         if self.levels.is_empty() || self.levels.len() > 150 || self.start >= self.levels.len() {
             return Err("invalid session level configuration".into());
         }
-        for record in &self.levels {
-            if !decode_level(&record.0).contains(&Tile::Player) {
-                return Err("level contains no player".into());
-            }
-        }
-        Ok(())
+        self.levels.iter().map(LevelRecord::decode).collect()
     }
 }
 
 pub struct Run {
     pub game: Game,
     configuration: Configuration,
+    levels: Vec<Level>,
     level_index: usize,
     header: Header,
     observer: Observer,
@@ -67,9 +64,9 @@ pub struct Run {
 
 impl Run {
     pub fn new(configuration: Configuration, paced: bool) -> Result<Self, String> {
-        configuration.validate()?;
+        let levels = configuration.decode_levels()?;
         let index = configuration.start;
-        let mut game = Game::load_level(&configuration.levels[index].0, (index + 1) as u8, paced)?;
+        let mut game = Game::load_level(&levels[index], (index + 1) as u8, paced);
         game.high_scores = configuration.high_scores.clone();
         if configuration.wait_on_level_start {
             game.session.phase = Phase::Waiting;
@@ -86,6 +83,7 @@ impl Run {
             game,
             level_index: index,
             configuration,
+            levels,
             observer: Observer::new(initial).map_err(|error| error.to_string())?,
             header,
             rounds: vec![],
@@ -273,8 +271,7 @@ impl Run {
         } else {
             self.game.session.attempt += 1;
         }
-        self.game
-            .reload_board(&self.configuration.levels[self.level_index].0)?;
+        self.game.reload_board(&self.levels[self.level_index]);
         self.game.session.phase = if self.configuration.wait_on_level_start {
             Phase::Waiting
         } else {

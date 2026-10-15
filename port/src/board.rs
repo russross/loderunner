@@ -2,6 +2,34 @@
 use lode_trace::{Cell, HolePhase, Tile};
 use std::num::NonZeroU8;
 
+// A level is validated once at the storage boundary. Its original markers stay
+// intact so every attempt uses the same reverse-order actor allocation rules.
+#[derive(Clone, Debug)]
+pub struct Level {
+    pub(crate) tiles: [Tile; 448],
+    pub(crate) player: Cell,
+    pub(crate) gold: GoldProgress,
+}
+
+impl Level {
+    pub fn new(tiles: [Tile; 448]) -> Result<Self, String> {
+        let index = tiles
+            .iter()
+            .rposition(|&tile| tile == Tile::Player)
+            .ok_or("level contains no player")?;
+        Ok(Self {
+            player: Cell {
+                col: (index % 28) as u8,
+                row: (index / 28) as u8,
+            },
+            gold: GoldProgress::from_count(
+                tiles.iter().filter(|&&tile| tile == Tile::Gold).count() as u8,
+            ),
+            tiles,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GoldProgress {
     Collecting(NonZeroU8),

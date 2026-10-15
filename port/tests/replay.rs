@@ -83,7 +83,10 @@ fn round_trip_includes_hole_opening_and_refill() {
 
 #[test]
 fn closing_hole_kills_player_and_journals_environment_contact() {
-    let mut game = Game::load_level(&record(&[(5, 15, Tile::Player)]), 1, false).unwrap();
+    let level = LevelRecord(record(&[(5, 15, Tile::Player)]))
+        .decode()
+        .unwrap();
+    let mut game = Game::load_level(&level, 1, false);
     game.holes.entries[0] = Some(OpenHole {
         cell: Cell::new(5, 15).unwrap(),
         remaining: NonZeroU8::new(1).unwrap(),

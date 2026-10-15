@@ -252,26 +252,26 @@ impl GuardSchedule {
     pub fn phase(self) -> u8 {
         self.phase
     }
-    pub fn pattern(&mut self, count: usize, difficulty: u8) -> Result<u8, String> {
-        const PATTERNS: [[u8; 3]; 12] = [
+    pub fn updates(&mut self, count: usize, difficulty: u8) -> Result<u8, String> {
+        const UPDATES: [[u8; 3]; 12] = [
             [0, 0, 0],
             [0, 1, 1],
             [1, 1, 1],
-            [1, 3, 1],
-            [1, 3, 3],
+            [1, 2, 1],
+            [1, 2, 2],
+            [2, 2, 2],
+            [2, 2, 3],
+            [2, 3, 3],
             [3, 3, 3],
-            [3, 3, 7],
-            [3, 7, 7],
-            [7, 7, 7],
-            [7, 7, 15],
-            [7, 15, 15],
-            [15, 15, 15],
+            [3, 3, 4],
+            [3, 4, 4],
+            [4, 4, 4],
         ];
         self.phase = (self.phase + 1) % 3;
-        PATTERNS
+        UPDATES
             .get(count + usize::from(difficulty))
-            .map(|pattern| pattern[usize::from(self.phase)])
-            .ok_or_else(|| "guard difficulty exceeds supported update patterns".into())
+            .map(|updates| updates[usize::from(self.phase)])
+            .ok_or_else(|| "guard difficulty exceeds supported update counts".into())
     }
     pub fn next_guard(&mut self, count: usize) -> usize {
         let index = self.cursor % count;

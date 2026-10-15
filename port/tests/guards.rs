@@ -1,6 +1,6 @@
 use lode_port::actors::{Direction, GuardMode};
 use lode_port::state::Game;
-use lode_port::storage::original_level;
+use lode_port::storage::{LevelRecord, original_level};
 use lode_trace::{Cell, Motion, Tile};
 use std::num::NonZeroU8;
 
@@ -14,7 +14,7 @@ fn fixture(player: (usize, usize), guards: &[(usize, usize)]) -> Game {
     for &(col, row) in guards {
         put(col, row, Tile::Guard);
     }
-    Game::load_level(&record, 1, false).unwrap()
+    Game::load_level(&LevelRecord(record).decode().unwrap(), 1, false)
 }
 
 #[test]
@@ -83,7 +83,10 @@ fn burial_resurrection_retries_occupied_target() {
 #[test]
 fn route_search_and_updates_remain_bounded_on_all_original_boards() {
     for level in 1..=150 {
-        let mut game = Game::load_level(&original_level(level).unwrap(), level, false).unwrap();
+        let board = LevelRecord(original_level(level).unwrap())
+            .decode()
+            .unwrap();
+        let mut game = Game::load_level(&board, level, false);
         for _ in 0..40 {
             game.update_guards(&mut vec![]).unwrap();
             game.update_resurrections().unwrap();

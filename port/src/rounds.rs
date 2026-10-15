@@ -137,7 +137,6 @@ impl Game {
     }
 
     pub fn enable_exit_ladders(&mut self) {
-        self.clock.events.add(TimingEvent::Exit, 1);
         self.session.exit_available = true;
         let mut blocked = false;
         for slot in (0..self.hidden_ladders.len()).rev() {

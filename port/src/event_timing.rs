@@ -1,5 +1,7 @@
 //! Event counts describe work executed during an interval independently of its clock.
 use crate::devices::speaker::Speaker;
+use crate::routing::SearchWork;
+use crate::sound::{NoteWork, render_note};
 use lode_trace::Phase;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -7,8 +9,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TimingEvent {
-    // Interval markers separate fixed dispatch from terminal paths. Local helper
-    // cycle totals retain variable alignment and sound-countdown work.
+    // Only features used by the calibrated model are retained. Search features
+    // describe extents, never branch outcomes or original instruction paths.
     Round,
     Poll,
     Pause,
@@ -19,55 +21,21 @@ pub enum TimingEvent {
     TileDraw,
     ActorDraw,
     SpriteErase,
-    SoundSection,
-    Note,
-    // Player attempts, rendering and collection checks count executed work even
-    // when movement is blocked or a centered cell contains no gold.
-    PlayerFall,
     PlayerAttempt,
-    PlayerAnimation,
-    PlayerDraw,
-    GoldCheck,
     Dig,
     Score,
     // Guard scheduling selects updates independently of route complexity. Search
     // counts preserve the number of cells and candidate rows actually examined.
     GuardUpdate,
-    GuardFall,
-    GuardAttempt,
-    GuardRoute,
     SameRowScan,
     LimitScan,
     RouteCandidate,
     AboveScan,
     BelowScan,
-    // Timer scans and active entries distinguish empty boards from pending holes
-    // and resurrection work; input counts reflect device observations.
+    // Hole counts describe timer work; input counts describe observed keys.
     HoleScan,
     ActiveHole,
-    ResurrectionScan,
-    ActiveResurrection,
-    Exit,
     Input,
-    // Vertical searches use different terrain and neighbor paths. These probes
-    // retain early returns and the original left/right pointer asymmetry.
-    BelowNonEmpty,
-    BelowLeftProbe,
-    BelowRightProbe,
-    AboveLeftProbe,
-    AboveRightProbe,
-    RouteDown,
-    RouteUp,
-    HorizontalSearch,
-    SameRowSupport,
-    // Candidate distances and improvements expose branch work that cell counts
-    // alone cannot distinguish when guards search relative to the player.
-    DistanceSameRow,
-    DistanceAbove,
-    DistanceBelow,
-    BetterRoute,
-    BelowPlayerProbe,
-    AbovePlayerProbe,
 }
 
 // Draw records retain only inputs that affect the model's fixed graphics terms.
@@ -85,15 +53,6 @@ pub struct Draw {
     pub sprite: u8,
     pub half_x: u8,
     pub y: u8,
-    pub shift: u8,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NoteWork {
-    pub enabled: bool,
-    pub pitch: u8,
-    pub duration: u8,
-    pub low_counter: u8,
 }
 
 // Section boundaries retain buffered-note padding and falling-note setup. Notes
@@ -120,6 +79,18 @@ pub struct Events {
 }
 
 impl Events {
+    pub fn search(&mut self, work: SearchWork) {
+        for (event, count) in [
+            (TimingEvent::SameRowScan, work.same_row_cells),
+            (TimingEvent::LimitScan, work.horizontal_span),
+            (TimingEvent::RouteCandidate, work.candidate_columns),
+            (TimingEvent::AboveScan, work.upward_rows),
+            (TimingEvent::BelowScan, work.downward_rows),
+        ] {
+            self.add(event, count);
+        }
+    }
+
     pub fn add(&mut self, event: TimingEvent, count: u64) {
         *self.counts.entry(event).or_default() += count;
     }
@@ -143,12 +114,10 @@ impl Events {
     }
 
     pub fn note(&mut self, note: NoteWork) {
-        self.add(TimingEvent::Note, 1);
         self.work.push(Work::Note(note));
     }
 
     pub fn begin_sound(&mut self, section: SoundSection) {
-        self.add(TimingEvent::SoundSection, 1);
         self.work.push(Work::BeginSound(section));
     }
 
@@ -169,6 +138,13 @@ pub struct Model {
     pub coefficients: BTreeMap<TimingEvent, f64>,
 }
 
+struct Budget {
+    total: u64,
+    graphics: u64,
+    sound: u64,
+    costs: Vec<u64>,
+}
+
 impl Model {
     pub fn calibrated() -> Self {
         serde_json::from_str(include_str!("model.json")).expect("embedded timing model")
@@ -177,11 +153,19 @@ impl Model {
     // Fixed graphics and sound terms combine with the learned event corrections.
     // Polling is an explicit event; every phase uses this one estimation path.
     pub fn estimate(&self, interval: &TimingInterval) -> u64 {
+        self.budget(interval).total
+    }
+
+    fn budget(&self, interval: &TimingInterval) -> Budget {
         let mut features = interval.events.counts.clone();
+        let mut graphics = 0;
         let mut sound = 0;
+        let mut costs = Vec::with_capacity(interval.events.work.len());
         for &work in &interval.events.work {
             let cost = self.work_cost(work);
+            costs.push(cost);
             let feature = if matches!(work, Work::Draw(_)) {
+                graphics += cost;
                 TimingEvent::GraphicsCycles
             } else {
                 sound += cost;
@@ -197,54 +181,46 @@ impl Model {
             .sum::<f64>();
         // Audio countdowns must fit without changing pitch. Calibrated gameplay
         // has spare non-audio time; this bound also protects sparse custom turns.
-        (total.round().max(0.0) as u64).max(sound)
+        Budget {
+            total: (total.round().max(0.0) as u64).max(sound),
+            graphics,
+            sound,
+            costs,
+        }
     }
 
     pub fn render(&self, interval: &TimingInterval, start: u64, speaker: &mut Speaker) -> u64 {
-        let total = self.estimate(interval);
-        let graphics = interval
-            .events
-            .work
-            .iter()
-            .filter(|work| matches!(work, Work::Draw(_)))
-            .map(|work| self.work_cost(*work))
-            .sum::<u64>();
-        let sound = interval
-            .events
-            .work
-            .iter()
-            .filter(|work| !matches!(work, Work::Draw(_)))
-            .map(|work| self.work_cost(*work))
-            .sum::<u64>();
-        let non_sound = total - sound;
+        let budget = self.budget(interval);
+        let non_sound = budget.total - budget.sound;
         let mut graphics_done = 0;
         let mut sound_done = 0;
 
         // Corrections adjust gaps between notes, while note countdowns retain
         // their original pitch, duration, muting and incoming-counter behavior.
-        for &work in &interval.events.work {
-            let gap = if graphics == 0 {
+        for (&work, cost) in interval.events.work.iter().zip(budget.costs) {
+            let gap = if budget.graphics == 0 {
                 non_sound
             } else {
-                (u128::from(non_sound) * u128::from(graphics_done) / u128::from(graphics)) as u64
+                (u128::from(non_sound) * u128::from(graphics_done) / u128::from(budget.graphics))
+                    as u64
             };
             match work {
-                Work::Draw(_) => graphics_done += self.work_cost(work),
+                Work::Draw(_) => graphics_done += cost,
                 Work::Note(note) => {
-                    sound_done += self.note_cost(note, |offset| {
+                    sound_done += render_note(note, |offset| {
                         speaker.access(start + gap + sound_done + offset)
                     });
                 }
-                _ => sound_done += self.work_cost(work),
+                _ => sound_done += cost,
             }
         }
-        total
+        budget.total
     }
 
     fn work_cost(&self, work: Work) -> u64 {
         match work {
             Work::Draw(draw) => self.draw_cost(draw),
-            Work::Note(note) => self.note_cost(note, |_| {}),
+            Work::Note(note) => render_note(note, |_| {}),
             Work::BeginSound(SoundSection::Buffered { .. }) => 19,
             Work::BeginSound(SoundSection::Falling) => 34,
             Work::BeginSound(SoundSection::Idle { period }) => 40 + 1812 * (u64::from(period) + 1),
@@ -268,7 +244,7 @@ impl Model {
         let row_crossings = (draw.y..draw.y + 11)
             .map(|row| u64::from(row >= 123) + u64::from(row >= 187))
             .sum::<u64>();
-        let wide = draw.shift >= 5;
+        let wide = (u16::from(draw.half_x) * 2 % 7) >= 5;
         match draw.kind {
             DrawKind::Tile => 125 + shifted + 253 + row_crossings + 11 * if wide { 81 } else { 69 },
             DrawKind::Actor => {
@@ -284,41 +260,5 @@ impl Model {
                     + 11 * if wide { 131 } else { 107 }
             }
         }
-    }
-
-    // Note work is evaluated without a second clock. Runs end only at speaker
-    // reloads or low-counter wraps, including the original zero-byte wrap case.
-    fn note_cost(&self, note: NoteWork, mut edge: impl FnMut(u64)) -> u64 {
-        let count = |byte: u8| if byte == 0 { 256_u64 } else { u64::from(byte) };
-        let mut remaining = (count(note.duration) - 1) * 256 + count(note.low_counter);
-        let mut until_wrap = count(note.low_counter);
-        let mut pitch_counter = count(note.duration);
-        let mut cost = 6;
-        while remaining > 0 {
-            cost += if note.enabled { 9 } else { 6 };
-            if note.enabled {
-                edge(cost);
-            }
-            loop {
-                let steps = pitch_counter.min(until_wrap).min(remaining);
-                remaining -= steps;
-                until_wrap -= steps;
-                pitch_counter -= steps;
-                if remaining == 0 {
-                    return cost + (steps - 1) * 10 + 18;
-                }
-                cost += steps * 10;
-                if until_wrap == 0 {
-                    cost += 6;
-                    until_wrap = 256;
-                }
-                if pitch_counter == 0 {
-                    cost += 5;
-                    pitch_counter = count(note.pitch);
-                    break;
-                }
-            }
-        }
-        cost
     }
 }

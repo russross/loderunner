@@ -139,7 +139,6 @@ impl Game {
         self.erase_shape(sprite, x, y);
     }
     pub fn draw_player(&mut self) {
-        self.clock.events.add(TimingEvent::PlayerDraw, 1);
         let (sprite, x, y) = self.player_sprite_coordinates();
         let contact = self.scene.contact(sprite, x, y);
         self.overlay_shape(sprite, x, y);
@@ -151,7 +150,6 @@ impl Game {
     // Collection is centered in both axes and suppresses overlap death for the
     // remaining player update. The actor still occupies the foreground cell.
     pub fn check_player_gold(&mut self, journal: &mut Journal) -> Result<(), String> {
-        self.clock.events.add(TimingEvent::GoldCheck, 1);
         let position = self.player.position;
         if !position.at_center() || self.board.terrain_at(position.cell) != Tile::Gold {
             return Ok(());
@@ -163,7 +161,7 @@ impl Game {
         self.paint_tile(Layer::Background, 0, col, row);
         self.erase_shape(7, col * 5, row * 11);
         self.add_score(250);
-        self.sound.load_sound_data(&[
+        self.sound.append_notes(&[
             Note {
                 duration: 7,
                 pitch: 0x45,
@@ -206,7 +204,6 @@ impl Game {
     }
 
     fn fall_player(&mut self, journal: &mut Journal) -> Result<(), String> {
-        self.clock.events.add(TimingEvent::PlayerFall, 1);
         self.falling_sound = true;
         self.erase_player();
         self.player.animation = if self.player.facing == Facing::Left {
@@ -300,7 +297,6 @@ impl Game {
             self.check_player_gold(journal)?;
         }
         let rope = self.board.terrain_at(self.player.position.cell) == Tile::Rope;
-        self.clock.events.add(TimingEvent::PlayerAnimation, 1);
         self.player.animation.advance(direction, rope);
         self.player.motion = direction.motion();
         self.draw_player();

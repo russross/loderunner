@@ -56,7 +56,6 @@ pub struct Run {
     tracing: bool,
     initials: Option<(usize, usize)>,
     high_score_until: u64,
-    timing_intervals: Vec<TimingInterval>,
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
     timing_model: Model,
@@ -91,7 +90,6 @@ impl Run {
             tracing: true,
             initials: None,
             high_score_until: 0,
-            timing_intervals: Vec::new(),
             last_timing: None,
             last_model_cycles: None,
             timing_model: Model::calibrated(),
@@ -155,9 +153,8 @@ impl Run {
         // the same boundary for capture, replay and external machine validation.
         checkpoint(&mut self.game)?;
         self.game.clock.checkpoint();
-        self.last_timing = Some(interval.clone());
+        self.last_timing = Some(interval);
         if self.tracing {
-            self.timing_intervals.push(interval);
             self.rounds.push(
                 self.observer
                     .finish_round(self.last_start, self.game.snapshot(), inputs, journal)
@@ -240,7 +237,7 @@ impl Run {
             for (duration, pitch) in (2..=13_u8).zip((0x40..=0xf0_u8).step_by(16)) {
                 self.game
                     .sound
-                    .load_sound_data(&[Note { duration, pitch }, Note { duration, pitch }])?;
+                    .append_notes(&[Note { duration, pitch }, Note { duration, pitch }])?;
             }
             while !self.game.sound.is_empty() {
                 self.game.play_sound_section();
@@ -361,10 +358,6 @@ impl Run {
 
     pub fn last_model_cycles(&self) -> Option<u64> {
         self.last_model_cycles
-    }
-
-    pub fn timing_intervals(&self) -> &[TimingInterval] {
-        &self.timing_intervals
     }
 
     pub fn disable_tracing(&mut self) -> Result<(), String> {

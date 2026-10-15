@@ -42,7 +42,14 @@ fn complete_turn_commits_model_time_and_default_trace_reexecutes() {
     let events = &run.last_timing().unwrap().events;
     assert_eq!(events.count(TimingEvent::ActorDraw), 1);
     assert_eq!(events.count(TimingEvent::SpriteErase), 1);
-    assert_eq!(events.count(TimingEvent::SoundSection), 2);
+    assert_eq!(
+        events
+            .work
+            .iter()
+            .filter(|work| matches!(work, Work::BeginSound(_)))
+            .count(),
+        2
+    );
     assert_eq!(events.count(TimingEvent::GraphicsCycles), 0);
     assert_eq!(events.count(TimingEvent::SoundCycles), 0);
     for key in [None, None, Some(0xa0)] {
@@ -61,9 +68,17 @@ fn falling_defers_input_and_landing_keeps_ordered_sound_work() {
     let mut run = run(&[(5, 14, Tile::Player), (25, 15, Tile::Gold)]);
     run.step(Some(0xcc)).unwrap();
     let interval = run.last_timing().unwrap();
-    assert_eq!(interval.events.count(TimingEvent::PlayerFall), 1);
+    assert_eq!(run.game.player.motion, lode_trace::Motion::Falling);
     assert_eq!(interval.events.count(TimingEvent::Input), 0);
-    assert_eq!(interval.events.count(TimingEvent::Note), 2);
+    assert_eq!(
+        interval
+            .events
+            .work
+            .iter()
+            .filter(|work| matches!(work, Work::Note(_)))
+            .count(),
+        2
+    );
     assert!(
         interval
             .events
@@ -79,7 +94,13 @@ fn falling_defers_input_and_landing_keeps_ordered_sound_work() {
         1
     );
     assert_eq!(
-        run.last_timing().unwrap().events.count(TimingEvent::Note),
+        run.last_timing()
+            .unwrap()
+            .events
+            .work
+            .iter()
+            .filter(|work| matches!(work, Work::Note(_)))
+            .count(),
         1
     );
     assert!(
@@ -101,7 +122,15 @@ fn death_and_reload_have_no_fallback_timing_path() {
     run.step(None).unwrap();
     let interval = run.last_timing().unwrap();
     assert_eq!(interval.phase, Phase::Died);
-    assert_eq!(interval.events.count(TimingEvent::Note), 24);
+    assert_eq!(
+        interval
+            .events
+            .work
+            .iter()
+            .filter(|work| matches!(work, Work::Note(_)))
+            .count(),
+        24
+    );
     assert!(interval.events.count(TimingEvent::TileDraw) >= 896);
     assert_eq!(
         run.game.clock.cycles - before,
@@ -128,7 +157,7 @@ fn untraced_play_keeps_only_the_latest_event_record() {
         run.last_timing()
             .unwrap()
             .events
-            .count(TimingEvent::PlayerDraw),
+            .count(TimingEvent::ActorDraw),
         1
     );
     run.step(Some(0xa0)).unwrap();
@@ -136,10 +165,9 @@ fn untraced_play_keeps_only_the_latest_event_record() {
         run.last_timing()
             .unwrap()
             .events
-            .count(TimingEvent::PlayerDraw),
+            .count(TimingEvent::ActorDraw),
         0
     );
-    assert!(run.timing_intervals().is_empty());
     assert!(run.trace().is_err());
 }
 

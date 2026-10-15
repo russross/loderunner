@@ -38,3 +38,10 @@ test-collision:
 .PHONY: test-render-sdl
 test-render-sdl:
 	SDL_VIDEODRIVER=dummy cargo test -p lode-port --test render sdl_partial_texture_updates_match_the_rgb_cache -- --include-ignored --test-threads=1
+
+.PHONY: timing-fit timing-types
+TIMING_MEASUREMENTS ?= ../artifacts/event-timing-final/measurements.json
+timing-fit:
+	../sources/analysis/fit_port_model.py $(TIMING_MEASUREMENTS) --model src/model.json --report ../sources/analysis/port-model-report.json
+timing-types:
+	uv run --project ../sources/mame-poc ty check --extra-search-path ../sources/analysis ../sources/analysis/fit_port_model.py

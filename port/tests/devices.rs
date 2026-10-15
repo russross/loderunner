@@ -77,7 +77,7 @@ fn short_note_uses_incoming_counter_and_muting_keeps_delay() {
 fn sound_loading_appends_and_playback_index_selects_last_note() {
     let mut sound = Sound::default();
     sound
-        .load_sound_data(&[
+        .append_notes(&[
             Note {
                 duration: 7,
                 pitch: 0x45,
@@ -92,7 +92,7 @@ fn sound_loading_appends_and_playback_index_selects_last_note() {
     assert_eq!(sound.peek().unwrap().pitch, 0x55);
     assert!(
         sound
-            .load_sound_data(
+            .append_notes(
                 &[Note {
                     duration: 1,
                     pitch: 1

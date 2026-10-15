@@ -2,6 +2,17 @@ use lode_original::devices::hires::Hires;
 use lode_original::graphics::row_address;
 use lode_port::collision::{Layer, Scene};
 
+// Compare the current model against independently collected reference work.
+// The baseline has no model events for native menu polling or pause entry.
+pub fn reference_model() -> lode_original::event_timing::Model {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../../src/model.json")).unwrap();
+    let coefficients = model["coefficients"].as_object_mut().unwrap();
+    coefficients.remove("pause");
+    coefficients.remove("poll");
+    serde_json::from_value(model).unwrap()
+}
+
 // Exact visible ink plus the uniform phase determines every decoded RGB pixel.
 // Display holes are not part of the native scene or the rendered-output contract.
 pub fn assert_visible(scene: &Scene, original: &Hires) {

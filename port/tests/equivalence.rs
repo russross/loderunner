@@ -11,11 +11,11 @@ use lode_trace::Phase;
 
 mod support;
 
-// Input-only execution protects gameplay across timing changes. Complete model
-// turns must retain the previously calibrated duration on its gameplay domain.
+// Independent gameplay execution must produce the same workload for the native
+// model, even though the baseline also collects unused branch-level features.
 #[test]
 fn all_boards_match_original_gameplay_and_calibrated_turn_costs() {
-    let old_model = lode_original::event_timing::Model::calibrated();
+    let old_model = support::reference_model();
     for level in 1..=150 {
         let config = Configuration {
             high_scores: vec![],

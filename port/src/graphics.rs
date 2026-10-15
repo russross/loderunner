@@ -43,7 +43,6 @@ impl Game {
             sprite,
             half_x,
             y,
-            shift: (u16::from(half_x) * 2 % 7) as u8,
         });
     }
 }

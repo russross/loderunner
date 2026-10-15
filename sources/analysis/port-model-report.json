@@ -1,0 +1,87 @@
+{
+  "measurement_sha256": "e0e3055c26cf1538f15b6b498642e1d07cf96c9719c0eb4beb0964207e667f2c",
+  "features": [
+    "round",
+    "hole_scan",
+    "death",
+    "completion",
+    "player_attempt",
+    "guard_update",
+    "dig",
+    "score",
+    "active_hole",
+    "input",
+    "same_row_scan",
+    "limit_scan",
+    "route_candidate",
+    "above_scan",
+    "below_scan",
+    "tile_draw",
+    "actor_draw",
+    "sprite_erase"
+  ],
+  "ridge": 1e-06,
+  "selection": "fixed whole-operation features; minimum validation RMSE selects ridge",
+  "metrics": {
+    "train": {
+      "legacy": {
+        "rounds": 2054,
+        "mae": 1072.0038948393378,
+        "rmse": 1407.7409344270482,
+        "bias": -1064.8743914313534,
+        "max_absolute": 3981,
+        "max_percent": 27.27272727272727,
+        "total_percent": -2.799568068864256
+      },
+      "model": {
+        "rounds": 2054,
+        "mae": 144.2190847127556,
+        "rmse": 234.7038055482932,
+        "bias": 0.012658227848101266,
+        "max_absolute": 1304,
+        "max_percent": 5.818181818181818,
+        "total_percent": 3.327863903677795e-05
+      }
+    },
+    "validation": {
+      "legacy": {
+        "rounds": 480,
+        "mae": 1707.0833333333333,
+        "rmse": 1840.340538007391,
+        "bias": -1707.0833333333333,
+        "max_absolute": 4086,
+        "max_percent": 6.281775684989935,
+        "total_percent": -3.550485178089286
+      },
+      "model": {
+        "rounds": 480,
+        "mae": 379.78125,
+        "rmse": 489.6497196125682,
+        "bias": -255.89375,
+        "max_absolute": 1546,
+        "max_percent": 2.7467439065240096,
+        "total_percent": -0.5322218012442383
+      }
+    },
+    "test": {
+      "legacy": {
+        "rounds": 360,
+        "mae": 1517.3277777777778,
+        "rmse": 1698.5034049617525,
+        "bias": -1517.3277777777778,
+        "max_absolute": 3517,
+        "max_percent": 6.617794068643786,
+        "total_percent": -3.5131632193926494
+      },
+      "model": {
+        "rounds": 360,
+        "mae": 330.31388888888887,
+        "rmse": 444.433956473475,
+        "bias": -182.875,
+        "max_absolute": 1390,
+        "max_percent": 2.774630678662668,
+        "total_percent": -0.42342184276581835
+      }
+    }
+  }
+}

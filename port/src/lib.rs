@@ -12,6 +12,7 @@ pub mod guards;
 pub mod player;
 pub mod render;
 pub mod rounds;
+pub mod routing;
 pub mod score;
 pub mod screen;
 pub mod session;

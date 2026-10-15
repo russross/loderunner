@@ -266,7 +266,7 @@ fn forced_probes_from_reached_states_match_scene_while_pose_only_does_not() {
     let mut terrain_mismatches = 0;
     let mut false_positives = 0;
     let mut false_negatives = 0;
-    let old_model = lode_original::event_timing::Model::calibrated();
+    let old_model = support::reference_model();
     for level in 1..=150 {
         let config = Configuration {
             levels: vec![LevelRecord(original_level(level).unwrap())],

@@ -3,7 +3,7 @@ Object-level collision analysis
 
 Reference shape masks are generated at build time alongside the sprite rows. Gameplay uses named sprite identities and cell-based appearance operations; the scene consumes reference geometry independently of RGB presentation.
 
-The native port has two independent contact mechanisms. Logical occupancy detects a guard entering a player cell and a closing hole containing the player. Player redraw queries a local shape-composition scene, independently of rendering. The unchanged `port-original` supplies the packed-framebuffer reference detector. The native model retains background and contrast shapes per local cell, rather than trying to assign every surviving pixel to an actor. This captures contact-relevant history without scanline addresses, color phases, or a table of animation-pair outcomes.
+The native port has two independent contact mechanisms. Logical occupancy detects a guard entering a player cell and a closing hole containing the player. Player redraw queries a local shape-composition scene, independently of rendering. Historical differential runs used the procedural milestone as a packed-framebuffer reference detector; that implementation is retired. The native model retains background and contrast shapes per local cell, rather than trying to assign every surviving pixel to an actor. This captures contact-relevant history without scanline addresses, color phases, or a table of animation-pair outcomes.
 
 
 When contact is evaluated
@@ -55,7 +55,7 @@ Per-object surviving shapes do not provide a simple complete model. A pixel can 
 Exact local composition
 -----------------------
 
-`port/src/collision.rs` defines `Shape(u128)` and `Scene`. Each local cell stores background shape `B` and contrast shape `D = F XOR B`; `F` denotes visible foreground ink only for the derivation. Actual foreground is not a stored third layer. Both extra foreground and missing background are represented by `D`. Sprite geometry is decoded once from the shared assets and cached; gameplay, text, and transitions use sprites zero through 101. Image entries 102 and 103 have wider data and remain supported only by the baseline's packed renderer, as they are not used by gameplay.
+`src/collision.rs` defines `Shape(u128)` and `Scene`. Each local cell stores background shape `B` and contrast shape `D = F XOR B`; `F` denotes visible foreground ink only for the derivation. Actual foreground is not a stored third layer. Both extra foreground and missing background are represented by `D`. Sprite geometry is decoded once from the shared assets and cached; gameplay, text, and transitions use sprites zero through 101. Image entries 102 and 103 have wider data and are outside the gameplay sprite domain.
 
 The following rules operate on translated whole shapes, not rows. `S` is incoming sprite ink, `R` is the affected rectangular area, and expressions apply inside `R`; everything outside remains unchanged.
 

@@ -4,7 +4,7 @@ Event timing model
 Native port
 -----------
 
-The native `port/` uses `port/src/model.json`, fitted by `fit_port_model.py` from the retained original-machine measurements. `make -C port timing-fit` reproduces it and `port-model-report.json`. Eighteen whole-operation features describe rounds, input, player attempts, selected guards, digs, scores, holes, drawing and guard-search extents. No branch probes, distance-class events or best-route updates remain in native gameplay. Guard routing returns a direction plus search extents without access to a clock. Fixed graphics and note-duration terms remain reference-fidelity inputs; presentation does not measure or advance game time.
+The game uses `src/model.json`, fitted by `fit_port_model.py` from the retained original-machine measurements. `make timing-fit` reproduces it and `port-model-report.json`. Eighteen whole-operation features describe rounds, input, player attempts, selected guards, digs, scores, holes, drawing and guard-search extents. No branch probes, distance-class events or best-route updates remain in native gameplay. Guard routing returns a direction plus search extents without access to a clock. Fixed graphics and note-duration terms remain reference-fidelity inputs; presentation does not measure or advance game time.
 
 Training uses 2,054 intervals, validation selects ridge regularization using 480 intervals, and 360 held-out intervals report the frozen result. Held-out RMSE is 444 cycles, maximum absolute error 1,390 cycles, maximum relative error 2.775%, and total drift -0.423%. The earlier branch-heavy model achieved 342-cycle RMSE; procedural timing achieved 1,699. The native choice removes control-flow constraints at a modest precision cost. Original-machine state and occurrence checks remain exact.
 
@@ -14,7 +14,7 @@ Native intervals always commit through the model. Polling costs 5,000 cycles; th
 Baseline calibration experiment
 -------------------------------
 
-The remainder describes the retained `port-original/` calibration and reproduction workflow, including its procedural clock and branch-heavy comparison model.
+The remainder records the historical procedural-clock calibration and branch-heavy comparison model. The procedural implementation and its measurement/verification driver are retired; their commands below describe the original experiment and are not current entry points. The retained fitter is also imported by `fit_port_model.py`.
 
 `event-model.json` contains the runtime coefficients. `event-model-report.json` records the measurement digest, selected factors, validation searches, stopping decision, and independent test results. Raw measurements, paired traces, and fresh validation reports are under `artifacts/event-timing-final/`. The local clock, graphics formulas, sound edges, and SDL pacing continue to use the timing described in `TIMING.md`.
 

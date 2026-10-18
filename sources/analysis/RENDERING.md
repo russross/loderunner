@@ -1,13 +1,13 @@
 Sprite rendering and local texture updates
 =========================================
 
-The native port renders composed sprite shapes directly into a retained RGB24 SDL texture. It has no HIRES device, packed display pages, graphics addresses, soft switches, inverse scanline map, or display-hole storage. The unchanged baseline in `port-original` supplies the reference output in differential tests. The native compositor preserves the visible effects of the original ordered appearance operations; it does not rebuild an idealized scene from current actor poses.
+The native port renders composed sprite shapes directly into a retained RGB24 SDL texture. It has no HIRES device, packed display pages, graphics addresses, soft switches, inverse scanline map, or display-hole storage. Historical differential runs used the procedural milestone as reference output; that implementation and those comparison tests are retired. The native compositor preserves the visible effects of the original ordered appearance operations; it does not rebuild an idealized scene from current actor poses.
 
 
 Storage and appearance flow
 ---------------------------
 
-Game owns one `Scene` from `port/src/collision.rs` and one `Display` from `port/src/render.rs`. Scene holds the fixed 28-by-18 grid of local ten-by-eleven shapes. The final local row covers five visible rows; the image is 280 by 192 pixels. Each cell retains background `B` and contrast `D`, both 110-bit masks. Visible foreground ink is `B XOR D`. The same masks answer player contact and supply rendering. No separate rendering bit plane mirrors collision state.
+Game owns one `Scene` from `src/collision.rs` and one `Display` from `src/render.rs`. Scene holds the fixed 28-by-18 grid of local ten-by-eleven shapes. The final local row covers five visible rows; the image is 280 by 192 pixels. Each cell retains background `B` and contrast `D`, both 110-bit masks. Visible foreground ink is `B XOR D`. The same masks answer player contact and supply rendering. No separate rendering bit plane mirrors collision state.
 
 The closed `Layer` enum selects Foreground or Background. Gameplay calls `paint_tile(layer, sprite, col, row)`, `overlay_shape(sprite, half_x, y)`, and `erase_shape(sprite, half_x, y)` on Game. These operations update Scene through the identities in `COLLISION.md`, then record the same typed Draw work for the original-machine timing model. Changing the status border, clearing background, and selecting the high-score display use explicit scene/presentation operations. Presentation never changes the collision masks or adds timing work.
 

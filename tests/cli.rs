@@ -260,3 +260,26 @@ fn machine_record_trace_verify_and_playback_share_startup_options() {
     assert!(!wrong.status.success());
     assert!(String::from_utf8_lossy(&wrong.stderr).contains("round 3: verification mismatch"));
 }
+
+#[test]
+fn renderer_selection_and_startup_command_summary_are_available() {
+    let files = Files::new("cli-renderers");
+    for mode in ["crt", "classic"] {
+        let output = command(&files, &["--rounds", "2", "--renderer", mode]);
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(text.contains("Snap to 1x - 5x"), "{text}");
+        assert!(text.contains("F2") && text.contains("Ctrl+Q"), "{text}");
+        assert!(text.contains(if mode == "crt" {
+            "Renderer: CRT"
+        } else {
+            "Renderer: classic"
+        }));
+        success(output);
+    }
+    let invalid = command(&files, &["--renderer", "unknown"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("renderer must be crt or classic"));
+    let help = command(&files, &["--help"]);
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--renderer MODE"));
+    success(help);
+}

@@ -1,6 +1,7 @@
 //! Session execution shares interval boundaries across every startup mode.
 
 use crate::cli::{Arguments, Playback};
+use crate::presentation::RenderMode;
 use crate::recording::{Recording, observed_key};
 use crate::session::{Configuration, Run};
 use crate::state::Game;
@@ -120,6 +121,10 @@ impl Session {
 
     pub fn displayed(&self) -> bool {
         self.arguments.display
+    }
+
+    pub fn render_mode(&self) -> RenderMode {
+        self.arguments.renderer
     }
 
     // A host polls once per interval and submits committed graphics/audio before pacing.

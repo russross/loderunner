@@ -1,12 +1,36 @@
-use loderunner::cli::{Arguments, USAGE};
+use loderunner::cli::{Arguments, CONTROLS, USAGE};
 use loderunner::devices::keyboard::{Control, ESCAPE, RETURN};
-use loderunner::render::{HEIGHT, WIDTH};
+use loderunner::presentation::Presentation;
+use loderunner::render::scaled_size;
 use loderunner::runtime::Session;
 use loderunner::timing::NTSC_CPU_HZ;
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Mod};
-use sdl2::pixels::PixelFormatEnum;
+use std::cell::RefCell;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowCommand {
+    Scale(u32),
+    ToggleRenderer,
+}
+
+fn window_command(key: Keycode, modifiers: Mod) -> Option<WindowCommand> {
+    if modifiers.intersects(
+        Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LALTMOD | Mod::RALTMOD | Mod::LGUIMOD | Mod::RGUIMOD,
+    ) {
+        return None;
+    }
+    Some(match key {
+        Keycode::Num1 => WindowCommand::Scale(1),
+        Keycode::Num2 => WindowCommand::Scale(2),
+        Keycode::Num3 => WindowCommand::Scale(3),
+        Keycode::Num4 => WindowCommand::Scale(4),
+        Keycode::Num5 => WindowCommand::Scale(5),
+        Keycode::F2 => WindowCommand::ToggleRenderer,
+        _ => return None,
+    })
+}
 
 fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
     if modifiers.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
@@ -43,9 +67,12 @@ fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
 fn display(session: Session) -> Result<(), String> {
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
+    let (width, height) = scaled_size(5);
     let window = video
-        .window("Lode Runner", WIDTH as u32 * 3, HEIGHT as u32 * 3)
+        .window("Lode Runner", width, height)
         .position_centered()
+        .resizable()
+        .allow_highdpi()
         .build()
         .map_err(|error| error.to_string())?;
     let mut canvas = window
@@ -53,9 +80,8 @@ fn display(session: Session) -> Result<(), String> {
         .build()
         .map_err(|error| error.to_string())?;
     let creator = canvas.texture_creator();
-    let mut texture = creator
-        .create_texture_streaming(PixelFormatEnum::RGB24, WIDTH as u32, HEIGHT as u32)
-        .map_err(|error| error.to_string())?;
+    let mut presentation = Presentation::new(&creator, session.render_mode());
+    let commands = RefCell::new(Vec::new());
     let mut events = sdl.event_pump()?;
     let audio = sdl.audio()?;
     let desired = AudioSpecDesired {
@@ -95,14 +121,38 @@ fn display(session: Session) -> Result<(), String> {
                     Event::KeyDown {
                         keycode: Some(key),
                         keymod,
+                        repeat,
                         ..
-                    } => delivery = key_code(key, keymod),
+                    } => {
+                        if let Some(command) = window_command(key, keymod) {
+                            if !repeat {
+                                commands.borrow_mut().push(command);
+                            }
+                        } else {
+                            delivery = key_code(key, keymod);
+                        }
+                    }
                     _ => (),
                 }
             }
             Ok((false, delivery))
         },
         |game| {
+            // Window actions are applied at the presentation checkpoint and never
+            // enter the gameplay keyboard latch or consumed-input recordings.
+            for command in commands.borrow_mut().drain(..) {
+                match command {
+                    WindowCommand::Scale(scale) => {
+                        let (width, height) = scaled_size(scale);
+                        canvas
+                            .window_mut()
+                            .set_size(width, height)
+                            .map_err(|error| error.to_string())?;
+                        game.display.request_present();
+                    }
+                    WindowCommand::ToggleRenderer => presentation.toggle(&mut game.display),
+                }
+            }
             let final_frame =
                 (u128::from(game.clock.cycles) * u128::from(rate) / u128::from(NTSC_CPU_HZ)) as u64;
             let mut samples = game.speaker.sample_frames(
@@ -121,17 +171,20 @@ fn display(session: Session) -> Result<(), String> {
             sample_frame = final_frame;
             game.speaker
                 .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
-            game.display
-                .paint(&mut game.scene, &mut canvas, &mut texture)
+            presentation.paint(&mut game.scene, &mut game.display, &mut canvas)
         },
     )
 }
 
 fn execute() -> Result<(), String> {
     let Some(arguments) = Arguments::parse(std::env::args().skip(1))? else {
-        println!("{USAGE}");
+        println!("{USAGE}\n\n{CONTROLS}");
         return Ok(());
     };
+    println!(
+        "Lode Runner\n\n{CONTROLS}\n\nRenderer: {}\n",
+        arguments.renderer.name()
+    );
     let session = Session::new(arguments)?;
     if session.displayed() {
         display(session)
@@ -147,5 +200,34 @@ fn main() -> std::process::ExitCode {
             eprintln!("loderunner: {error}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WindowCommand, window_command};
+    use sdl2::keyboard::{Keycode, Mod};
+
+    #[test]
+    fn window_shortcuts_remain_separate_from_modified_game_commands() {
+        for (key, scale) in [
+            (Keycode::Num1, 1),
+            (Keycode::Num2, 2),
+            (Keycode::Num3, 3),
+            (Keycode::Num4, 4),
+            (Keycode::Num5, 5),
+        ] {
+            assert_eq!(
+                window_command(key, Mod::NOMOD),
+                Some(WindowCommand::Scale(scale))
+            );
+            assert_eq!(window_command(key, Mod::LCTRLMOD), None);
+        }
+        assert_eq!(
+            window_command(Keycode::F2, Mod::NOMOD),
+            Some(WindowCommand::ToggleRenderer)
+        );
+        assert_eq!(window_command(Keycode::Z, Mod::NOMOD), None);
+        assert_eq!(window_command(Keycode::Num6, Mod::NOMOD), None);
     }
 }

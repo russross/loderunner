@@ -1,50 +1,58 @@
 Sprite rendering and local texture updates
 =========================================
 
-The native port renders composed sprite shapes directly into a retained RGB24 SDL texture. It has no HIRES device, packed display pages, graphics addresses, soft switches, inverse scanline map, or display-hole storage. Historical differential runs used the procedural milestone as reference output; that implementation and those comparison tests are retired. The native compositor preserves the visible effects of the original ordered appearance operations; it does not rebuild an idealized scene from current actor poses.
+The native port defaults to the sibling `../crt` Rust library for Apple II signal encoding, NTSC decoding, and CRT light reconstruction. `--renderer classic` retains the digital artifact decoder. F2 switches between them. Both consume the same composed scene; output selection never changes contact, game state, consumed inputs, trace events or model cycles.
 
 
 Storage and appearance flow
 ---------------------------
 
-Game owns one `Scene` from `src/collision.rs` and one `Display` from `src/render.rs`. Scene holds the fixed 28-by-18 grid of local ten-by-eleven shapes. The final local row covers five visible rows; the image is 280 by 192 pixels. Each cell retains background `B` and contrast `D`, both 110-bit masks. Visible foreground ink is `B XOR D`. The same masks answer player contact and supply rendering. No separate rendering bit plane mirrors collision state.
+Game owns `Scene` from `src/collision.rs` and `Display` from `src/render.rs`. Scene contains a 28-by-18 grid of ten-by-eleven local shapes; the last local row covers five visible rows of the 280-by-192 image. Each cell holds background B and contrast D as 110-bit masks. Foreground ink is B XOR D. Those masks answer player contact and supply rendering. There is no separate rendering bit plane or idealized actor redraw.
 
-The closed `Layer` enum selects Foreground or Background. Gameplay calls `paint_tile(layer, sprite, col, row)`, `overlay_shape(sprite, half_x, y)`, and `erase_shape(sprite, half_x, y)` on Game. These operations update Scene through the identities in `COLLISION.md`, then record the same typed Draw work for the original-machine timing model. Changing the status border, clearing background, and selecting the high-score display use explicit scene/presentation operations. Presentation never changes the collision masks or adds timing work.
+Gameplay calls paint_tile, overlay_shape and erase_shape, updating Scene through the Boolean identities in COLLISION.md and recording Draw work in the original-machine timing model. Status-border ink, clearing background and selecting high scores use the same scene/layer operations. Cargo decodes sprites zero through 101 from pinned assets at build time. Supported original writes share their set high color-phase bit and translated low-bit shape; non-gameplay image entries 102 and 103 are outside this port.
 
-Cargo converts sprites zero through 101 from the reference pattern encoding into native ten-bit rows at build time. Scene packs those rows once into local shapes. Native rendering does not generate shifted byte blocks. Every supported original shift has the same translated low-bit shape, and all written asset bytes have the same high color-phase bit. These properties are checked against the baseline for all 102 supported sprites and all seven shifts. Image entries 102 and 103 are wider non-gameplay data; only the reference renderer supports those entries.
+Overlay adds ink; erasure restores background over its enclosing fourteen- or twenty-one-pixel span aligned to seven-pixel groups. Foreground replacement can cut through nearby actors. Background changes may leave foreground unchanged by changing contrast correspondingly. Status-border ink occupies rows 176–179, status glyphs begin at 181, and visible right-edge spill reaches the left edge 64 rows below. Scene performs those translations before recording damage.
 
-Initialization applies terrain and actor tiles in the same reverse allocation order as gameplay initialization, overlays the player without lethal contact evaluation, and draws status. A reload creates a new Scene and Display; the existing SDL texture receives a complete upload at the new Display's first presentation. High scores replace Background and select it. Returning rebuilds Background from terrain and selects Foreground, retaining all foreground damage and actor ink. No semantic actor redraw is inserted during these transitions.
-
-
-Composition details required for fidelity
-----------------------------------------
-
-Ordinary sprite overlay only adds its ink. Erasure removes its silhouette and restores background across the enclosing fourteen- or twenty-one-pixel span aligned to seven-pixel groups. The wider restoration can affect ink outside the silhouette. Foreground tile replacement can cut through nearby actors; changing Background can expose old foreground differences or produce missing-background contrast. Keeping `B` and `D` captures these effects without pixel ownership or a per-object exception list.
-
-Status-border ink occupies rows 176 through 179. Glyphs in logical row 16 begin at row 181, crossing two local scene rows. Right-edge actor spill can place ink at the left edge 64 rows below; Scene performs that coordinate translation before marking damage. Spill reaching unused reference storage is discarded because it cannot influence visible output or legal player contact. Validated actor placements use half_x below 140 and y no greater than 181; wrapped placements remain rejected. Tile placements require columns zero through 27 and rows zero through 16.
-
-The reference decoder's color depends only on a pixel, its immediate horizontal neighbors, and global horizontal parity. Adjacent set pixels are white. Isolated set pixels alternate blue `[32, 96, 255]` and orange `[255, 128, 0]`. A one-pixel gap between set pixels uses the left pixel's parity; other unset pixels are black. There is no vertical color dependency. The native decoder uses those same rules, with the invariant high phase bit folded into the fixed palette. This preserves the existing digital artifact decoder, not an analog NTSC simulation.
+Every appearance mutation compares old/new Foreground and Background ink separately. Dirty flags are per local cell and per Layer. Repeating identical ink causes no damage. Dirty flags accumulate until successful presentation; unchanged inactive-layer damage remains pending.
 
 
-Damage and presentation transaction
------------------------------------
+CRT source and retained output
+------------------------------
 
-Each Scene mutation compares old and new visible ink. Foreground damage is recorded only if `old_B XOR old_D` differs from `new_B XOR new_D`; Background damage is recorded only if `old_B` differs from `new_B`. Dirty flags are per local cell and per layer. Consequently a background replacement can change contrast without dirtying the displayed Foreground. Repeating an already-present overlay causes no damage. Multiple operations accumulate damage until presentation; flags conservatively retain a cell changed and subsequently restored during the same interval.
+The SDL host owns Presentation and its streaming texture. In CRT mode it owns CrtDisplay: a `crt::Renderer`, AppleEncoder, reusable SignalLineBuffer, retained RGBA8 bytes and an optional RenderStamp. All construction is confined to displayed sessions, so headless execution does not initialize the signal pipeline. The dependency is a relative Cargo path to `../crt`; its own NOTES.md specifies signal normalization, filtering, optical integration and numerical assumptions.
 
-Display owns one retained RGB buffer, the selected Layer, a full-upload flag and an expose/present flag. Clock owns the Draw timing journal. `prepare(&Scene)` finds contiguous dirty-cell runs in each local row, expands them by one pixel horizontally, and clips them to the image. The expansion covers every neighboring color that changed ink can affect. Consecutive rectangles with matching horizontal bounds merge vertically. It decodes only those rectangles into the RGB buffer and returns their upload rectangles. A normal ten-pixel sprite aligned across two cells produces a 22-by-11 update, 242 pixels rather than all 53,760 pixels.
+For each affected scene scan line, the adapter gathers row_bits from the selected Layer and packs forty HGR bytes. Each byte contains seven consecutive ink bits, LSB first, with bit seven set. This retains the original blue/orange HGR phase instead of inferring a voltage signal from already-colored RGB. AppleProfile::IieNtscV1 and Sampling::Eight are selected. The same color-enabled HGR path renders gameplay and the game's sprite-based status/high-score text.
 
-The first presentation and a changed Layer require one full-image decode/upload because the SDL texture holds the previously selected image. Selecting the same Layer does not invalidate it. Window expose/size events request a canvas presentation using retained texture content; they do not force an RGB rebuild or texture upload. An unchanged ordinary frame performs neither upload nor present.
+Rows intersecting dirty local cells are encoded completely. Source samples are compared inside the library; only the differing interval plus electrical support is decoded. The library retains linear light, expands optical dependencies across neighboring scan lines and reports physical-output damage rectangles. There are no application-level filter halos, per-tile phase resets, or independently blended CRT tiles.
 
-`paint(&mut Scene, &mut Canvas, &mut Texture)` requires a 280-by-192 RGB24 texture. It prepares changed rectangles and uploads each from the RGB buffer using its full 840-byte row pitch, even when the rectangle is narrow. SDL retains texture pixels outside those rectangles. After uploading, it copies that texture to the window canvas and presents. Canvas copy covers the window when presenting because SDL does not promise that backbuffer contents survive a present; CPU decoding and texture transfers remain local.
+The first frame, changed Layer, renderer switch and newly loaded Scene require all source rows to be submitted. A reload replaces Game's Scene and Display but retains the host's renderer; Display.full_upload ensures old ink is explicitly cleared from the retained source. After switching modes Presentation creates a new texture and invalidates Display. Source selection and output mode never affect the game's Draw journal.
 
-Only after successful texture uploads and canvas copy does Display acknowledge the selected layer's damage and clear its full-upload/present flags. An error leaves the pending damage intact for retry. Inactive-layer dirty flags remain pending. The native SDL loop presents at the same model-clock checkpoint as audio submission; capture and headless replay keep appearance state and timing work without submitting texture updates.
+CrtDisplay owns persistent output bytes; a successful RenderStamp corresponds to those bytes and their SDL texture. `prepare` submits affected rows and renders into this buffer. Presentation uploads each reported rectangle using the complete output-width-times-four pitch, copies the whole texture, then presents. Only after successful upload and copy does it acknowledge scene damage, clear display flags and retain the new stamp. On failure the old stamp and dirty flags remain, so retries regenerate and upload pending changes. Texture dimensions/format are physical drawable size and SDL RGBA32 (byte RGBA).
 
 
-Checks and evidence
--------------------
+Classic output
+--------------
 
-`make -C port check` runs formatting, Clippy and portable tests. The differential suites cover the existing 90-interval schedule and an extended 180-interval schedule on all 150 original boards, 40,500 intervals in total. They compare both complete visible ink planes and verify the reference's phase-bit invariant, which together determine every RGB pixel under the shared decoder. State, occurrence traces and calibrated gameplay costs also match. Packed display holes no longer belong to the native contract.
+Display keeps its original RGB24 cache. A set pixel adjacent to another set pixel is white. Isolated ink alternates blue [32,96,255] and orange [255,128,0] by global parity. A one-pixel gap uses its left neighbor's parity. Other pixels are black. This path has one-pixel horizontal color support and no vertical color dependency.
 
-Lifecycle tests prepare and acknowledge the incremental Display after each interval and compare every RGB pixel against the reference's selected image. They cover digging on both sides, refill, burial/resurrection, menu selection, death/reload and changing guard rosters. Dedicated rendering cases cover idempotent overlays, hidden background updates, erasure, neighboring colors across cell boundaries, status placement and right-edge spill. Collision probes and mixed-operation tests continue to use the unchanged packed baseline as their oracle.
+`Display::prepare` groups dirty cell runs into rectangles, adds one horizontal pixel on each side and clips to the image. Equal adjacent runs merge vertically. It recomputes only those RGB pixels. Initial frames, layer changes, reloads and switching back from CRT require the full 280×192 cache because the previous output may have acknowledged scene damage without updating the classic cache.
 
-`make -C port test-render-sdl` uses SDL's dummy video driver and software canvas to exercise actual streaming-texture updates. It reads back the canvas after explicitly copying the texture, avoiding any assumption about backbuffer retention. Readback exactly matches the RGB cache after initial upload, local overlays/erasures, artifact-color changes, visible edge spill, layer switches and expose presentation. CLI tests also run the native SDL application and replay its resulting trace without SDL. All nine `make -C mame-validation port-test` tests pass; these validate gameplay, timing and validation-stream behavior, not analog display color.
+`Display::paint` requires a 280×192 RGB24 texture and uploads rectangles with the full 840-byte stride. It clears the canvas black, copies the texture into a centered aspect-preserving destination rectangle and presents. An expose requests another copy without rebuilding or uploading the cache. Scene damage clears only after successful upload and copy.
+
+
+Window and input flow
+---------------------
+
+The SDL window starts at 5× native image size, 1400×960 window-coordinate units. It is resizable and high-DPI aware. Unmodified number keys 1–5 snap to multiples of 280×192. F2 switches output modes. Key repeat does not repeatedly apply window commands. Ctrl+Q quits through the normal recording-finalization flow. The grouped startup summary lists movement, digging, pause, scores, game controls, size snapping, renderer switching and quit; --help adds startup options.
+
+Polling queues host window actions separately from gameplay delivery. The next display checkpoint drains them, applies window size or output selection, submits audio and paints the scene. Playback still ignores live gameplay delivery while processing host commands. Number/F2 commands never reach the keyboard latch or recordings; modified keys continue through normal gameplay mapping.
+
+Both modes preserve the existing 280:192 native picture aspect. Classic uses an integer-centered fitting rectangle; CRT ViewConfig.reference_aspect explicitly uses 280/192 and the library integrates fractional letterbox boundaries. Both sides use black bars. Resizing CRT changes the library view and CPU-buffer/texture dimensions, invalidating presentation but retaining decoded light. No source row is re-decoded solely because of a resize. Exposed or resized windows request presentation even without scene changes. Every copy covers the necessary canvas because SDL backbuffer retention is not assumed.
+
+
+Validation
+----------
+
+`make test-presentation` runs the changed input-dispatch, CLI, classic-rendering and CRT integration tests. Retained CRT output is compared byte-for-byte with a newly constructed renderer across local overlays, erasures, adjacent color changes, visible edge spill, background/foreground selection, status glyphs and scene reload. Tests require local decoded/output work for sprite changes, no work for unchanged images, and zero decoded samples after resize. Geometry checks cover all five snaps and wide/tall letterboxing. CLI checks exercise both renderer selections, invalid modes, startup help and replay/recording workflows.
+
+`make test-render-sdl` runs ignored SDL tests under the dummy video driver with a software canvas. The classic test verifies actual strided texture uploads against its cache. The CRT test verifies actual RGBA uploads against independently prepared output, then exercises window resizing, layer selection, source reload and CRT/classic/CRT switching. Release and headed checks use the same executable built by make.

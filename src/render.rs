@@ -1,5 +1,6 @@
 //! Incremental RGB presentation of the game's composed sprite shapes.
 use crate::collision::{Layer, Scene};
+use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture};
@@ -8,6 +9,32 @@ use sdl2::video::Window;
 pub const WIDTH: usize = 280;
 pub const HEIGHT: usize = 192;
 const PITCH: usize = WIDTH * 3;
+
+/// Window snaps use the original native image dimensions in window coordinates.
+pub fn scaled_size(scale: u32) -> (u32, u32) {
+    (WIDTH as u32 * scale, HEIGHT as u32 * scale)
+}
+
+/// Fit the native picture geometry, leaving centered black bars.
+pub fn fit_display(width: u32, height: u32) -> Rect {
+    let (w, h) = if u64::from(width) * HEIGHT as u64 > u64::from(height) * WIDTH as u64 {
+        (
+            (u64::from(height) * WIDTH as u64 / HEIGHT as u64) as u32,
+            height,
+        )
+    } else {
+        (
+            width,
+            (u64::from(width) * HEIGHT as u64 / WIDTH as u64) as u32,
+        )
+    };
+    Rect::new(
+        ((width - w) / 2) as i32,
+        ((height - h) / 2) as i32,
+        w.max(1),
+        h.max(1),
+    )
+}
 
 pub struct Display {
     selected: Layer,
@@ -42,6 +69,20 @@ impl Display {
 
     pub fn request_present(&mut self) {
         self.needs_present = true;
+    }
+
+    // A new texture or output mode must consume every retained scene row.
+    pub fn invalidate(&mut self) {
+        self.full_upload = true;
+        self.needs_present = true;
+    }
+
+    pub(crate) fn full_upload(&self) -> bool {
+        self.full_upload
+    }
+
+    pub(crate) fn needs_present(&self) -> bool {
+        self.needs_present
     }
 
     pub fn pixels(&self) -> &[u8] {
@@ -99,7 +140,10 @@ impl Display {
                 .update(region, &self.rgb[offset..], PITCH)
                 .map_err(|error| error.to_string())?;
         }
-        canvas.copy(texture, None, None)?;
+        let (width, height) = canvas.output_size()?;
+        canvas.set_draw_color(Color::BLACK);
+        canvas.clear();
+        canvas.copy(texture, None, fit_display(width, height))?;
         canvas.present();
         self.acknowledge(scene);
         Ok(())

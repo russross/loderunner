@@ -4,7 +4,19 @@ Lode Runner
     make
     make run
 
-The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 development libraries, and pkg-config are required. The game in `src/` uses native game state, composed sprites, and event timing. `src/trace/` defines gameplay observations; `src/mame/` validates them against the original Apple II program. Reference assets and analysis remain in `sources/`.
+The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 development libraries, and pkg-config are required. The sibling `../crt` crate supplies the default NTSC/CRT pipeline; keep it checked out beside this project. The game in `src/` uses native game state, composed sprites, and event timing. `src/trace/` defines gameplay observations; `src/mame/` validates them against the original Apple II program. Reference assets and analysis remain in `sources/`.
+
+
+Rendering and window
+--------------------
+
+The default renderer sends composed scene ink through the `crt` library's Apple II HGR encoder, NTSC decoder, and CRT beam reconstruction. `--renderer classic` selects the existing digital artifact-color output; F2 switches between the two while playing or replaying. Renderer selection does not change gameplay, input recordings, or model timing.
+
+The window starts at 5× native size: 1400×960. Keys 1 through 5 snap to 280×192 through 1400×960. Both output modes retain the native 280:192 aspect ratio and center the picture with black bars inside manually resized windows. CRT reconstruction uses the actual drawable pixel dimensions, including high-DPI displays.
+
+A grouped keyboard-command summary prints at startup. Window shortcuts are reserved for presentation and do not enter gameplay recordings.
+
+    make run ARGS='--renderer classic'
 
 
 Record, replay, and validate
@@ -61,6 +73,7 @@ Development
 
     make lint
     make test
+    make test-presentation
     make test-render-sdl
     make mame-validation ROMPATH="$HOME/mame/roms"
 

@@ -1,10 +1,33 @@
 //! One startup contract for live play, input playback, and trace verification.
 
+use crate::presentation::RenderMode;
 use lode_mame_validation::Options;
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const USAGE: &str = "Lode Runner\n\nUsage: loderunner [OPTIONS]\n  --record FILE       Save consumed inputs\n  --replay FILE       Play an input recording\n  --trace FILE        Save a trace and validate against MAME\n  --verify FILE       Verify a trace against the game and MAME\n  --validate          Validate against MAME without a trace destination\n  --headless          Silent, full speed execution\n  --display           Display and sound (default except for --verify)\n  --unpaced           Disable display pacing\n  --rounds N          Bound execution (required for headless live play)\n  --level N           Starting level, 1 through 150\n  --input ROUND:HEX   Schedule a key for development\n  --mame PATH --rompath PATH --pluginspath DIR --work DIR --timeout-seconds N\n  --tolerance-cycles N --tolerance-percent N\n  --transition-tolerance-cycles N --original-initialization\n\nControls: arrows or I/J/K/L move; Space stops; Z/U and X/O dig.\nEscape pauses; Return shows scores; Ctrl+A sacrifices; Ctrl+R ends game;\nCtrl+S mutes; Ctrl+Left/Right changes speed; Ctrl+Q quits.";
+pub const USAGE: &str = "Lode Runner\n\nUsage: loderunner [OPTIONS]\n  --record FILE       Save consumed inputs\n  --replay FILE       Play an input recording\n  --trace FILE        Save a trace and validate against MAME\n  --verify FILE       Verify a trace against the game and MAME\n  --validate          Validate against MAME without a trace destination\n  --headless          Silent, full speed execution\n  --display           Display and sound (default except for --verify)\n  --unpaced           Disable display pacing\n  --renderer MODE    crt (default) or classic output\n  --rounds N          Bound execution (required for headless live play)\n  --level N           Starting level, 1 through 150\n  --input ROUND:HEX   Schedule a key for development\n  --mame PATH --rompath PATH --pluginspath DIR --work DIR --timeout-seconds N\n  --tolerance-cycles N --tolerance-percent N\n  --transition-tolerance-cycles N --original-initialization";
+
+pub const CONTROLS: &str = "Game
+  Arrows / I J K L   Move up, left, down, right
+  Space              Stop moving
+  Z / U              Dig left
+  X / O              Dig right
+  Escape             Pause / resume
+  Return             Show high scores
+
+Game controls
+  Ctrl+A             Sacrifice a life
+  Ctrl+R             End game
+  Ctrl+S             Toggle sound
+  Ctrl+Left / Right  Slower / faster
+
+Window
+  1 - 5              Snap to 1x - 5x native size (starts at 5x)
+  F2                 Switch CRT / classic output
+  Ctrl+Q             Quit and finish recording
+
+Other printable keys start play or enter high-score initials.
+Use --help for recording, replay, validation, and startup options.";
 
 #[derive(Default)]
 pub enum Playback {
@@ -21,6 +44,7 @@ pub struct Arguments {
     pub validate: bool,
     pub display: bool,
     pub paced: bool,
+    pub renderer: RenderMode,
     pub rounds: Option<usize>,
     pub level: u8,
     pub inputs: Vec<(usize, u8)>,
@@ -36,6 +60,7 @@ impl Arguments {
             validate: false,
             display: true,
             paced: true,
+            renderer: RenderMode::Crt,
             rounds: None,
             level: 1,
             inputs: Vec::new(),
@@ -83,6 +108,13 @@ impl Arguments {
                         Playback::Recording(value.into())
                     } else {
                         Playback::Trace(value.into())
+                    };
+                }
+                "--renderer" => {
+                    result.renderer = match value.as_str() {
+                        "crt" => RenderMode::Crt,
+                        "classic" => RenderMode::Classic,
+                        _ => return Err("renderer must be crt or classic".into()),
                     };
                 }
                 "--record" => result.record = Some(value.into()),

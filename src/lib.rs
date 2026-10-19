@@ -11,6 +11,7 @@ pub mod event_timing;
 pub mod graphics;
 pub mod guards;
 pub mod player;
+pub mod presentation;
 pub mod recording;
 pub mod render;
 pub mod rounds;

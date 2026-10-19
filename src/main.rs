@@ -27,7 +27,7 @@ fn window_command(key: Keycode, modifiers: Mod) -> Option<WindowCommand> {
         Keycode::Num3 => WindowCommand::Scale(3),
         Keycode::Num4 => WindowCommand::Scale(4),
         Keycode::Num5 => WindowCommand::Scale(5),
-        Keycode::F2 => WindowCommand::ToggleRenderer,
+        Keycode::Tab => WindowCommand::ToggleRenderer,
         _ => return None,
     })
 }
@@ -224,9 +224,11 @@ mod tests {
             assert_eq!(window_command(key, Mod::LCTRLMOD), None);
         }
         assert_eq!(
-            window_command(Keycode::F2, Mod::NOMOD),
+            window_command(Keycode::Tab, Mod::NOMOD),
             Some(WindowCommand::ToggleRenderer)
         );
+        assert_eq!(window_command(Keycode::Tab, Mod::LCTRLMOD), None);
+        assert_eq!(window_command(Keycode::F2, Mod::NOMOD), None);
         assert_eq!(window_command(Keycode::Z, Mod::NOMOD), None);
         assert_eq!(window_command(Keycode::Num6, Mod::NOMOD), None);
     }

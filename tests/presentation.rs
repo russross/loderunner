@@ -137,7 +137,7 @@ fn sdl_crt_uploads_and_mode_switches_preserve_pixels_and_letterboxing() {
             assert_eq!(actual, fresh.pixels(), "step {step}");
         } else {
             let rect = fit_display(width, height);
-            // Classic source stays at native resolution; side bars remain black.
+            // Simple source stays at native resolution; side bars remain black.
             for y in 0..height as usize {
                 assert_eq!(&actual[y * width as usize * 4..][..3], &[0; 3]);
             }

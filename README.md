@@ -10,13 +10,13 @@ The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 developm
 Rendering and window
 --------------------
 
-The default renderer sends composed scene ink through the `crt` library's Apple II HGR encoder, NTSC decoder, and CRT beam reconstruction. `--renderer classic` selects the existing digital artifact-color output; F2 switches between the two while playing or replaying. Renderer selection does not change gameplay, input recordings, or model timing.
+The default renderer sends composed scene ink through the `crt` library's Apple II HGR encoder, NTSC decoder, and CRT beam reconstruction. `--renderer simple` selects the existing digital artifact-color output; Tab switches between the two while playing or replaying. Renderer selection does not change gameplay, input recordings, or model timing.
 
 The window starts at 5× native size: 1400×960. Keys 1 through 5 snap to 280×192 through 1400×960. Both output modes retain the native 280:192 aspect ratio and center the picture with black bars inside manually resized windows. CRT reconstruction uses the actual drawable pixel dimensions, including high-DPI displays.
 
 A grouped keyboard-command summary prints at startup. Window shortcuts are reserved for presentation and do not enter gameplay recordings.
 
-    make run ARGS='--renderer classic'
+    make run ARGS='--renderer simple'
 
 
 Record, replay, and validate

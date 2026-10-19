@@ -264,21 +264,28 @@ fn machine_record_trace_verify_and_playback_share_startup_options() {
 #[test]
 fn renderer_selection_and_startup_command_summary_are_available() {
     let files = Files::new("cli-renderers");
-    for mode in ["crt", "classic"] {
+    let default = command(&files, &["--rounds", "2"]);
+    assert!(String::from_utf8_lossy(&default.stdout).contains("Renderer: crt"));
+    success(default);
+    for mode in ["crt", "simple"] {
         let output = command(&files, &["--rounds", "2", "--renderer", mode]);
         let text = String::from_utf8_lossy(&output.stdout);
         assert!(text.contains("Snap to 1x - 5x"), "{text}");
-        assert!(text.contains("F2") && text.contains("Ctrl+Q"), "{text}");
+        assert!(text.contains("Tab") && text.contains("Ctrl+Q"), "{text}");
         assert!(text.contains(if mode == "crt" {
-            "Renderer: CRT"
+            "Renderer: crt"
         } else {
-            "Renderer: classic"
+            "Renderer: simple"
         }));
         success(output);
     }
-    let invalid = command(&files, &["--renderer", "unknown"]);
-    assert!(!invalid.status.success());
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("renderer must be crt or classic"));
+    for mode in ["unknown", "classic"] {
+        let invalid = command(&files, &["--renderer", mode]);
+        assert!(!invalid.status.success());
+        assert!(
+            String::from_utf8_lossy(&invalid.stderr).contains("renderer must be crt or simple")
+        );
+    }
     let help = command(&files, &["--help"]);
     assert!(String::from_utf8_lossy(&help.stdout).contains("--renderer MODE"));
     success(help);

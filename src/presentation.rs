@@ -15,19 +15,19 @@ use sdl2::video::{Window, WindowContext};
 pub enum RenderMode {
     #[default]
     Crt,
-    Classic,
+    Simple,
 }
 impl RenderMode {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Crt => "CRT",
-            Self::Classic => "classic",
+            Self::Crt => "crt",
+            Self::Simple => "simple",
         }
     }
     pub fn toggled(self) -> Self {
         match self {
-            Self::Crt => Self::Classic,
-            Self::Classic => Self::Crt,
+            Self::Crt => Self::Simple,
+            Self::Simple => Self::Crt,
         }
     }
 }
@@ -159,7 +159,7 @@ impl<'a> Presentation<'a> {
             return Ok(());
         }
         let (format, tw, th) = match self.mode {
-            RenderMode::Classic => (PixelFormatEnum::RGB24, WIDTH as u32, HEIGHT as u32),
+            RenderMode::Simple => (PixelFormatEnum::RGB24, WIDTH as u32, HEIGHT as u32),
             RenderMode::Crt => (PixelFormatEnum::RGBA32, width, height),
         };
         let recreate = self.texture.as_ref().is_none_or(|t| {
@@ -172,7 +172,7 @@ impl<'a> Presentation<'a> {
                     .create_texture_streaming(format, tw, th)
                     .map_err(|e| e.to_string())?,
             );
-            if self.mode == RenderMode::Classic {
+            if self.mode == RenderMode::Simple {
                 display.invalidate();
             }
         }
@@ -180,7 +180,7 @@ impl<'a> Presentation<'a> {
             .texture
             .as_mut()
             .expect("texture created for current mode");
-        if self.mode == RenderMode::Classic {
+        if self.mode == RenderMode::Simple {
             return display.paint(scene, canvas, texture);
         }
         if self.crt.is_none() {

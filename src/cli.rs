@@ -5,7 +5,7 @@ use lode_mame_validation::Options;
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const USAGE: &str = "Lode Runner\n\nUsage: loderunner [OPTIONS]\n  --record FILE       Save consumed inputs\n  --replay FILE       Play an input recording\n  --trace FILE        Save a trace and validate against MAME\n  --verify FILE       Verify a trace against the game and MAME\n  --validate          Validate against MAME without a trace destination\n  --headless          Silent, full speed execution\n  --display           Display and sound (default except for --verify)\n  --unpaced           Disable display pacing\n  --renderer MODE    crt (default) or classic output\n  --rounds N          Bound execution (required for headless live play)\n  --level N           Starting level, 1 through 150\n  --input ROUND:HEX   Schedule a key for development\n  --mame PATH --rompath PATH --pluginspath DIR --work DIR --timeout-seconds N\n  --tolerance-cycles N --tolerance-percent N\n  --transition-tolerance-cycles N --original-initialization";
+pub const USAGE: &str = "Lode Runner\n\nUsage: loderunner [OPTIONS]\n  --record FILE       Save consumed inputs\n  --replay FILE       Play an input recording\n  --trace FILE        Save a trace and validate against MAME\n  --verify FILE       Verify a trace against the game and MAME\n  --validate          Validate against MAME without a trace destination\n  --headless          Silent, full speed execution\n  --display           Display and sound (default except for --verify)\n  --unpaced           Disable display pacing\n  --renderer MODE    crt (default) or simple output\n  --rounds N          Bound execution (required for headless live play)\n  --level N           Starting level, 1 through 150\n  --input ROUND:HEX   Schedule a key for development\n  --mame PATH --rompath PATH --pluginspath DIR --work DIR --timeout-seconds N\n  --tolerance-cycles N --tolerance-percent N\n  --transition-tolerance-cycles N --original-initialization";
 
 pub const CONTROLS: &str = "Game
   Arrows / I J K L   Move up, left, down, right
@@ -23,7 +23,7 @@ Game controls
 
 Window
   1 - 5              Snap to 1x - 5x native size (starts at 5x)
-  F2                 Switch CRT / classic output
+  Tab                Switch crt / simple output
   Ctrl+Q             Quit and finish recording
 
 Other printable keys start play or enter high-score initials.
@@ -113,8 +113,8 @@ impl Arguments {
                 "--renderer" => {
                     result.renderer = match value.as_str() {
                         "crt" => RenderMode::Crt,
-                        "classic" => RenderMode::Classic,
-                        _ => return Err("renderer must be crt or classic".into()),
+                        "simple" => RenderMode::Simple,
+                        _ => return Err("renderer must be crt or simple".into()),
                     };
                 }
                 "--record" => result.record = Some(value.into()),

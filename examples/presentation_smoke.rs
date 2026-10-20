@@ -78,7 +78,9 @@ fn run() -> Result<(), String> {
             let mut file = std::fs::File::create(path).map_err(|e| e.to_string())?;
             write!(file, "P6\n{width} {height}\n255\n").map_err(|e| e.to_string())?;
             let rgb: Vec<_> = actual
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| p[..3].iter().copied())
                 .collect();
             file.write_all(&rgb).map_err(|e| e.to_string())?;

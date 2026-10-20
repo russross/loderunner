@@ -152,8 +152,10 @@ impl Presentation {
         mode: RenderMode,
         preference: BackendPreference,
     ) -> Result<Self, String> {
+        let host = NativeDisplay::new(window, preference)?;
+        println!("Graphics: {}", host.backend_name());
         Ok(Self {
-            host: NativeDisplay::new(window, preference)?,
+            host,
             mode,
             crt: None,
             simple: vec![0; WIDTH * HEIGHT * 4],
@@ -218,8 +220,10 @@ impl Presentation {
             if !regions.is_empty() || display.needs_present() || self.host.needs_present() {
                 for (rgb, rgba) in display
                     .pixels()
-                    .chunks_exact(3)
-                    .zip(self.simple.chunks_exact_mut(4))
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .zip(self.simple.as_chunks_mut::<4>().0.iter_mut())
                 {
                     rgba[..3].copy_from_slice(rgb);
                     rgba[3] = 255;

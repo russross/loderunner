@@ -1,3 +1,4 @@
+use crt_native::BackendPreference;
 use loderunner::cli::{Arguments, CONTROLS, USAGE};
 use loderunner::devices::keyboard::{Control, ESCAPE, RETURN};
 use loderunner::presentation::Presentation;
@@ -73,14 +74,14 @@ fn display(session: Session) -> Result<(), String> {
         .position_centered()
         .resizable()
         .allow_highdpi()
+        .metal_view()
         .build()
         .map_err(|error| error.to_string())?;
-    let mut canvas = window
-        .into_canvas()
-        .build()
-        .map_err(|error| error.to_string())?;
-    let creator = canvas.texture_creator();
-    let mut presentation = Presentation::new(&creator, session.render_mode());
+    let mut presentation = Presentation::new(
+        window,
+        session.render_mode(),
+        BackendPreference::from_env()?,
+    )?;
     let commands = RefCell::new(Vec::new());
     let mut events = sdl.event_pump()?;
     let audio = sdl.audio()?;
@@ -144,7 +145,7 @@ fn display(session: Session) -> Result<(), String> {
                 match command {
                     WindowCommand::Scale(scale) => {
                         let (width, height) = scaled_size(scale);
-                        canvas
+                        presentation
                             .window_mut()
                             .set_size(width, height)
                             .map_err(|error| error.to_string())?;
@@ -171,7 +172,7 @@ fn display(session: Session) -> Result<(), String> {
             sample_frame = final_frame;
             game.speaker
                 .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
-            presentation.paint(&mut game.scene, &mut game.display, &mut canvas)
+            presentation.paint(&mut game.scene, &mut game.display)
         },
     )
 }

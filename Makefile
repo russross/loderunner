@@ -7,7 +7,7 @@ MAME ?= mame
 ROMPATH ?=
 TEST_ARGS ?=
 SYMBOLS = sources/analysis/apple2-symbols.json
-MANIFESTS = Cargo.toml src/trace/Cargo.toml src/mame/Cargo.toml ../crt/Cargo.toml
+MANIFESTS = Cargo.toml src/trace/Cargo.toml src/mame/Cargo.toml ../crt/Cargo.toml ../crt/native/Cargo.toml
 .PHONY: all release run format fmt lint test check validate mame-validation mame-poc test-render-sdl mostlyclean clean
 
 $(SYMBOLS): sources/analysis/generate_symbols.py sources/lode_runner_reveng/main.bin $(wildcard sources/lode_runner_reveng/*.asm)
@@ -44,6 +44,10 @@ test-render-sdl:
 .PHONY: test-presentation
 test-presentation: $(SYMBOLS) Cargo.lock
 	$(CARGO) test --locked -p loderunner --bin loderunner --test cli --test render --test presentation
+
+.PHONY: smoke
+smoke: $(SYMBOLS) Cargo.lock
+	$(CARGO) run --locked -p loderunner --example presentation_smoke
 
 # Preserve the deployed release executable and all user recordings and scores.
 mostlyclean:

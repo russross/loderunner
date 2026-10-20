@@ -121,7 +121,7 @@ impl Display {
         &mut self,
         scene: &mut Scene,
         canvas: &mut Canvas<Window>,
-        texture: &mut Texture<'_>,
+        texture: &mut Texture,
     ) -> Result<(), String> {
         let query = texture.query();
         if query.format != PixelFormatEnum::RGB24

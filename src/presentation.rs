@@ -6,10 +6,8 @@ use crt::{
     CompositeConfig, OutputBufferMut, PixelFormat, RasterLayout, RenderStamp, Renderer, Sampling,
     SignalLineBuffer, ViewConfig,
 };
-use sdl2::pixels::PixelFormatEnum;
-use sdl2::rect::Rect;
-use sdl2::render::{Canvas, Texture, TextureCreator};
-use sdl2::video::{Window, WindowContext};
+use crt_native::{BackendPreference, Display as NativeDisplay};
+use sdl2::video::Window;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RenderMode {
@@ -82,6 +80,27 @@ impl CrtDisplay {
         scene: &Scene,
         display: &Display,
     ) -> Result<crt::RenderReport, String> {
+        self.submit(scene, display, None)?;
+        self.renderer
+            .render_into(
+                OutputBufferMut::new(
+                    &mut self.pixels,
+                    self.size.0,
+                    self.size.1,
+                    self.size.0 as usize * 4,
+                    PixelFormat::Rgba8,
+                )
+                .map_err(|e| e.to_string())?,
+                self.stamp,
+            )
+            .map_err(|e| e.to_string())
+    }
+    fn submit(
+        &mut self,
+        scene: &Scene,
+        display: &Display,
+        host: Option<&NativeDisplay>,
+    ) -> Result<(), String> {
         let dirty = scene.dirty_cells(display.selected());
         for y in 0..HEIGHT {
             if !self.full_source
@@ -102,23 +121,15 @@ impl CrtDisplay {
             self.encoder
                 .encode_line(&AppleLine::hires(&bytes), &mut self.signal)
                 .map_err(|e| e.to_string())?;
-            self.renderer
-                .submit_line(y as u32, self.signal.as_line().map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
+            let line = self.signal.as_line().map_err(|e| e.to_string())?;
+            if let Some(host) = host {
+                host.submit_line(&mut self.renderer, y as u32, line)
+            } else {
+                self.renderer.submit_line(y as u32, line)
+            }
+            .map_err(|e| e.to_string())?;
         }
-        self.renderer
-            .render_into(
-                OutputBufferMut::new(
-                    &mut self.pixels,
-                    self.size.0,
-                    self.size.1,
-                    self.size.0 as usize * 4,
-                    PixelFormat::Rgba8,
-                )
-                .map_err(|e| e.to_string())?,
-                self.stamp,
-            )
-            .map_err(|e| e.to_string())
+        Ok(())
     }
     pub fn acknowledge(&mut self, stamp: RenderStamp) {
         self.stamp = Some(stamp);
@@ -126,88 +137,85 @@ impl CrtDisplay {
     }
 }
 
-/// SDL textures retain uploads; client CPU buffers remain authoritative on errors.
-pub struct Presentation<'a> {
-    creator: &'a TextureCreator<WindowContext>,
+/// The native presenter owns either a direct GPU surface or the SDL fallback.
+pub struct Presentation {
+    host: NativeDisplay,
     mode: RenderMode,
-    texture: Option<Texture<'a>>,
     crt: Option<CrtDisplay>,
+    simple: Vec<u8>,
 }
-impl<'a> Presentation<'a> {
-    pub fn new(creator: &'a TextureCreator<WindowContext>, mode: RenderMode) -> Self {
-        Self {
-            creator,
+impl Presentation {
+    pub fn new(
+        window: Window,
+        mode: RenderMode,
+        preference: BackendPreference,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            host: NativeDisplay::new(window, preference)?,
             mode,
-            texture: None,
             crt: None,
-        }
+            simple: vec![0; WIDTH * HEIGHT * 4],
+        })
+    }
+    pub fn window_mut(&mut self) -> &mut Window {
+        self.host.window_mut()
+    }
+    pub fn size(&self) -> (u32, u32) {
+        self.host.size()
+    }
+    pub fn is_gpu(&self) -> bool {
+        self.host.is_gpu()
+    }
+    pub fn capture_cpu(&mut self) -> Result<Vec<u8>, String> {
+        self.host.capture_cpu()
+    }
+    pub fn snapshot(&mut self) -> Result<Vec<u8>, String> {
+        let crt = self.crt.as_mut().ok_or("no CRT picture")?;
+        self.host.snapshot(&mut crt.renderer)
     }
     pub fn toggle(&mut self, display: &mut Display) {
         self.mode = self.mode.toggled();
-        self.texture = None;
-        self.crt = None;
+        self.host.invalidate();
+        if let Some(crt) = &mut self.crt {
+            crt.full_source = true;
+        }
         display.invalidate();
     }
-    pub fn paint(
-        &mut self,
-        scene: &mut Scene,
-        display: &mut Display,
-        canvas: &mut Canvas<Window>,
-    ) -> Result<(), String> {
-        let (width, height) = canvas.output_size()?;
+    pub fn paint(&mut self, scene: &mut Scene, display: &mut Display) -> Result<(), String> {
+        let (width, height) = self.host.size();
         if width == 0 || height == 0 {
             return Ok(());
         }
-        let (format, tw, th) = match self.mode {
-            RenderMode::Simple => (PixelFormatEnum::RGB24, WIDTH as u32, HEIGHT as u32),
-            RenderMode::Crt => (PixelFormatEnum::RGBA32, width, height),
-        };
-        let recreate = self.texture.as_ref().is_none_or(|t| {
-            let q = t.query();
-            q.width != tw || q.height != th || q.format != format
-        });
-        if recreate {
-            self.texture = Some(
-                self.creator
-                    .create_texture_streaming(format, tw, th)
-                    .map_err(|e| e.to_string())?,
-            );
-            if self.mode == RenderMode::Simple {
-                display.invalidate();
-            }
-        }
-        let texture = self
-            .texture
-            .as_mut()
-            .expect("texture created for current mode");
         if self.mode == RenderMode::Simple {
-            return display.paint(scene, canvas, texture);
+            let regions = display.prepare(scene);
+            if !regions.is_empty() || display.needs_present() || self.host.needs_present() {
+                for (rgb, rgba) in display
+                    .pixels()
+                    .chunks_exact(3)
+                    .zip(self.simple.chunks_exact_mut(4))
+                {
+                    rgba[..3].copy_from_slice(rgb);
+                    rgba[3] = 255;
+                }
+                self.host.present_rgba(
+                    &self.simple,
+                    WIDTH as u32,
+                    HEIGHT as u32,
+                    WIDTH as f32 / HEIGHT as f32,
+                )?;
+                display.acknowledge(scene);
+            }
+            return Ok(());
         }
         if self.crt.is_none() {
             self.crt = Some(CrtDisplay::new(width, height)?);
         }
         let crt = self.crt.as_mut().expect("CRT output initialized");
         crt.resize(width, height)?;
-        let report = crt.prepare(scene, display)?;
-        if report.changed.is_empty() && !display.needs_present() && !recreate {
-            return Ok(());
-        }
-        let pitch = width as usize * 4;
-        for region in &report.changed {
-            let rect = Rect::new(
-                region.x as i32,
-                region.y as i32,
-                region.width,
-                region.height,
-            );
-            let offset = region.y as usize * pitch + region.x as usize * 4;
-            texture
-                .update(rect, &crt.pixels()[offset..], pitch)
-                .map_err(|e| e.to_string())?;
-        }
-        canvas.copy(texture, None, None)?;
-        canvas.present();
-        crt.acknowledge(report.stamp);
+        crt.submit(scene, display, Some(&self.host))?;
+        self.host
+            .present_crt(&mut crt.renderer, display.needs_present())?;
+        crt.full_source = false;
         display.acknowledge(scene);
         Ok(())
     }

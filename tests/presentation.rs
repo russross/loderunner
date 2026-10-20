@@ -1,7 +1,7 @@
+use crt_native::BackendPreference;
 use loderunner::collision::{Layer, Scene};
 use loderunner::presentation::{CrtDisplay, Presentation, RenderMode};
 use loderunner::render::{Display, fit_display, scaled_size};
-use sdl2::pixels::PixelFormatEnum;
 
 fn commit(crt: &mut CrtDisplay, display: &mut Display, scene: &mut Scene) -> crt::RenderReport {
     let report = crt.prepare(scene, display).unwrap();
@@ -98,9 +98,8 @@ fn sdl_crt_uploads_and_mode_switches_preserve_pixels_and_letterboxing() {
         .resizable()
         .build()
         .unwrap();
-    let mut canvas = window.into_canvas().software().build().unwrap();
-    let creator = canvas.texture_creator();
-    let mut presentation = Presentation::new(&creator, RenderMode::Crt);
+    let mut presentation =
+        Presentation::new(window, RenderMode::Crt, BackendPreference::Cpu).unwrap();
     let mut scene = Scene::default();
     let mut display = Display::default();
     for step in 0..7 {
@@ -108,7 +107,7 @@ fn sdl_crt_uploads_and_mode_switches_preserve_pixels_and_letterboxing() {
             0 => scene.overlay(8, 50, 55),
             1 => scene.overlay(11, 55, 55),
             2 => {
-                canvas.window_mut().set_size(600, 288).unwrap();
+                presentation.window_mut().set_size(600, 288).unwrap();
                 display.request_present();
             }
             3 => {
@@ -126,11 +125,9 @@ fn sdl_crt_uploads_and_mode_switches_preserve_pixels_and_letterboxing() {
             6 => presentation.toggle(&mut display),
             _ => unreachable!(),
         }
-        presentation
-            .paint(&mut scene, &mut display, &mut canvas)
-            .unwrap();
-        let (width, height) = canvas.output_size().unwrap();
-        let actual = canvas.read_pixels(None, PixelFormatEnum::RGBA32).unwrap();
+        presentation.paint(&mut scene, &mut display).unwrap();
+        let (width, height) = presentation.size();
+        let actual = presentation.capture_cpu().unwrap();
         if step != 5 {
             let mut fresh = CrtDisplay::new(width, height).unwrap();
             fresh.prepare(&scene, &display).unwrap();

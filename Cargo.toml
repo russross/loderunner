@@ -19,6 +19,7 @@ sdl2 = { version = "0.38", features = ["use-pkgconfig"] }
 
 [dependencies]
 crt = { path = "../crt" }
+crt-native = { path = "../crt/native" }
 lode-trace = { path = "src/trace" }
 lode-mame-validation = { path = "src/mame" }
 sdl2.workspace = true

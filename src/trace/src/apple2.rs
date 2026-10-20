@@ -45,6 +45,8 @@ pub struct Apple2Observer {
     open: BTreeSet<Cell>,
     attempt: u32,
     exit: bool,
+    level: Option<u8>,
+    lives_used: u32,
 }
 
 impl Default for Apple2Observer {
@@ -55,6 +57,8 @@ impl Default for Apple2Observer {
             open: BTreeSet::new(),
             attempt: 0,
             exit: false,
+            level: None,
+            lives_used: 1,
         }
     }
 }
@@ -62,6 +66,17 @@ impl Default for Apple2Observer {
 impl Apple2Observer {
     pub fn observe(&mut self, sample: &Sample) -> Result<Observation, TraceError> {
         let memory = decode_memory(&sample.memory)?;
+        // The application counts attempts rather than remaining lives. Machine
+        // observations derive that counter from board identity and reloads.
+        if self.level != Some(memory[0xa6]) {
+            self.level = Some(memory[0xa6]);
+            self.lives_used = 1;
+        } else if sample.attempt != self.attempt {
+            self.lives_used = self
+                .lives_used
+                .checked_add(1)
+                .ok_or_else(|| TraceError("life-used counter overflow".into()))?;
+        }
         if sample.attempt != self.attempt {
             self.attempt = sample.attempt;
             self.motions.fill(Motion::Standing);
@@ -218,7 +233,7 @@ impl Apple2Observer {
                 attempt: sample.attempt,
                 phase: sample.phase,
                 score: decimal(memory[0x8e..0x92].iter().rev().copied())?,
-                lives: memory[0x98],
+                lives_used: self.lives_used,
                 exit_available: self.exit,
             },
             actors,

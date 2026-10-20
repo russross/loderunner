@@ -34,7 +34,7 @@ fn sacrifice_finishes_movement_and_reload_retains_direction() {
 }
 
 #[test]
-fn airborne_death_preserves_whistle_across_reload_and_new_game() {
+fn airborne_death_preserves_whistle_across_unlimited_reloads() {
     let config = configuration(vec![record(&[
         (5, 0, Tile::Player),
         (6, 1, Tile::Guard),
@@ -52,20 +52,16 @@ fn airborne_death_preserves_whistle_across_reload_and_new_game() {
             assert_eq!(run.game.falling_pitch, pitch.wrapping_add(1));
             assert!(run.game.falling_sound);
             deaths += 1;
-        } else if run.game.session.phase == Phase::GameOver {
-            let pitch = run.game.falling_pitch;
-            run.step(Some(0xa0)).unwrap();
-            assert_eq!(run.game.falling_pitch, pitch);
-            assert!(run.game.falling_sound);
-            assert_eq!(run.game.session.attempt, 0);
-            assert_eq!(deaths, 5);
-            assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
-            return;
+            if deaths == 6 {
+                assert_eq!(run.game.session.lives_used, 7);
+                assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
+                return;
+            }
         } else {
             run.step(None).unwrap();
         }
     }
-    panic!("airborne collisions did not reach game over");
+    panic!("airborne collisions did not reach six reloads");
 }
 
 #[test]
@@ -95,19 +91,20 @@ fn full_guarded_rounds_round_trip_on_every_original_level() {
 }
 
 #[test]
-fn death_restart_and_game_over_are_separate_observable_intervals() {
+fn deaths_have_no_life_limit_and_reload_at_zero_gameplay_duration() {
     let config = configuration(vec![record(&[
         (5, 15, Tile::Player),
         (15, 15, Tile::Guard),
     ])]);
     let mut inputs = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..6 {
         inputs.extend([Some(0x81), None]);
     }
     let trace = capture(config, &inputs).unwrap();
-    assert_eq!(trace.final_state.session.phase, Phase::GameOver);
-    assert_eq!(trace.final_state.session.lives, 0);
-    assert_eq!(trace.final_state.session.attempt, 4);
+    assert_eq!(trace.final_state.session.phase, Phase::Playing);
+    assert_eq!(trace.final_state.session.lives_used, 7);
+    assert_eq!(trace.final_state.session.attempt, 6);
+    assert_eq!(trace.final_delta, 0);
     assert_eq!(replay(&trace).unwrap(), trace);
 }
 
@@ -120,7 +117,7 @@ fn level_advancement_awards_score_and_loads_next_board() {
     let trace = capture(config, &[Some(0xa0), None, Some(0xcc)]).unwrap();
     assert_eq!(trace.final_state.session.level, 2);
     assert_eq!(trace.final_state.session.score, 1500);
-    assert_eq!(trace.final_state.session.lives, 6);
+    assert_eq!(trace.final_state.session.lives_used, 1);
     assert_eq!(trace.final_state.actors[0].cell.col, 8);
     assert_eq!(replay(&trace).unwrap(), trace);
 }
@@ -171,21 +168,21 @@ fn valid_but_wrong_gameplay_and_timing_traces_fail_reexecution() {
 }
 
 #[test]
-fn scored_game_over_restarts_without_initials() {
+fn restarting_a_level_retains_score_and_counts_another_life_used() {
     let config = configuration(vec![record(&[(5, 15, Tile::Player), (6, 15, Tile::Gold)])]);
     let mut inputs = vec![Some(0xcc), None, None, None, None, Some(0xa0)];
     for _ in 0..5 {
         inputs.extend([Some(0x81), None]);
     }
     let trace = capture(config.clone(), &inputs).unwrap();
-    assert_eq!(trace.final_state.session.phase, Phase::GameOver);
+    assert_eq!(trace.final_state.session.phase, Phase::Playing);
     assert_eq!(trace.final_state.session.score, 250);
     assert_eq!(replay(&trace).unwrap(), trace);
-    inputs.push(Some(0xc1));
+    inputs.extend([Some(0x92), None]);
     let restarted = capture(config, &inputs).unwrap();
     assert_eq!(restarted.final_state.session.phase, Phase::Playing);
-    assert_eq!(restarted.final_state.session.score, 0);
-    assert_eq!(restarted.final_state.session.lives, 5);
+    assert_eq!(restarted.final_state.session.score, 250);
+    assert_eq!(restarted.final_state.session.lives_used, 7);
 }
 
 #[test]

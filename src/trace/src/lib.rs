@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Cell {
@@ -140,7 +140,7 @@ pub struct Session {
     pub attempt: u32,
     pub phase: Phase,
     pub score: u32,
-    pub lives: u8,
+    pub lives_used: u32,
     pub exit_available: bool,
 }
 

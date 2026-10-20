@@ -1,0 +1,541 @@
+{
+  "reference_sha256": "5c9cc551242e08b76cb3a37e89f8bfb6dc02d886b628aab07798833b8708bbb1",
+  "machine": "apple2ee/w65c02",
+  "mame_version": "0.289",
+  "cpu_hz": 1023000,
+  "frame_period": 6,
+  "events": {
+    "completion": [
+      {
+        "kind": "start",
+        "duration": 9,
+        "pitch": 38,
+        "cycle": 7518225
+      },
+      {
+        "kind": "score",
+        "duration": 15,
+        "pitch": 0,
+        "cycle": 7518258
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 240,
+        "cycle": 7539970
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 240,
+        "cycle": 7553018
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 240,
+        "cycle": 7566066
+      },
+      {
+        "kind": "score",
+        "duration": 166,
+        "pitch": 0,
+        "cycle": 7579059
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 224,
+        "cycle": 7600771
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 224,
+        "cycle": 7613819
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 224,
+        "cycle": 7626867
+      },
+      {
+        "kind": "score",
+        "duration": 70,
+        "pitch": 0,
+        "cycle": 7639860
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 208,
+        "cycle": 7661572
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 208,
+        "cycle": 7674634
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 208,
+        "cycle": 7687696
+      },
+      {
+        "kind": "score",
+        "duration": 182,
+        "pitch": 0,
+        "cycle": 7700703
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 192,
+        "cycle": 7722415
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 192,
+        "cycle": 7735477
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 192,
+        "cycle": 7748539
+      },
+      {
+        "kind": "score",
+        "duration": 70,
+        "pitch": 0,
+        "cycle": 7761546
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 176,
+        "cycle": 7783258
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 176,
+        "cycle": 7796334
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 176,
+        "cycle": 7809410
+      },
+      {
+        "kind": "score",
+        "duration": 134,
+        "pitch": 0,
+        "cycle": 7822431
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 160,
+        "cycle": 7844143
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 160,
+        "cycle": 7857219
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 160,
+        "cycle": 7870295
+      },
+      {
+        "kind": "score",
+        "duration": 6,
+        "pitch": 0,
+        "cycle": 7883316
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 144,
+        "cycle": 7905028
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 144,
+        "cycle": 7918118
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 144,
+        "cycle": 7931208
+      },
+      {
+        "kind": "score",
+        "duration": 22,
+        "pitch": 0,
+        "cycle": 7944243
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 128,
+        "cycle": 7965955
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 128,
+        "cycle": 7979059
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 128,
+        "cycle": 7992163
+      },
+      {
+        "kind": "score",
+        "duration": 6,
+        "pitch": 0,
+        "cycle": 8005212
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 112,
+        "cycle": 8026924
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 112,
+        "cycle": 8040056
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 112,
+        "cycle": 8053188
+      },
+      {
+        "kind": "score",
+        "duration": 70,
+        "pitch": 0,
+        "cycle": 8066265
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 96,
+        "cycle": 8087977
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 96,
+        "cycle": 8101137
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 96,
+        "cycle": 8114297
+      },
+      {
+        "kind": "score",
+        "duration": 70,
+        "pitch": 0,
+        "cycle": 8127402
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 80,
+        "cycle": 8149114
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 80,
+        "cycle": 8162302
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 80,
+        "cycle": 8175490
+      },
+      {
+        "kind": "score",
+        "duration": 6,
+        "pitch": 0,
+        "cycle": 8188623
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 64,
+        "cycle": 8210335
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 64,
+        "cycle": 8223579
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 64,
+        "cycle": 8236823
+      },
+      {
+        "kind": "score",
+        "duration": 6,
+        "pitch": 0,
+        "cycle": 8250012
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 48,
+        "cycle": 8271724
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 48,
+        "cycle": 8285066
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 48,
+        "cycle": 8298408
+      },
+      {
+        "kind": "score",
+        "duration": 22,
+        "pitch": 0,
+        "cycle": 8311695
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 32,
+        "cycle": 8333407
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 32,
+        "cycle": 8346931
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 32,
+        "cycle": 8360455
+      },
+      {
+        "kind": "score",
+        "duration": 6,
+        "pitch": 0,
+        "cycle": 8373924
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 16,
+        "cycle": 8395636
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 16,
+        "cycle": 8409720
+      },
+      {
+        "kind": "note",
+        "duration": 6,
+        "pitch": 16,
+        "cycle": 8423804
+      },
+      {
+        "kind": "done",
+        "duration": 6,
+        "pitch": 0,
+        "cycle": 8437822
+      }
+    ],
+    "death": [
+      {
+        "cycle": 7518225,
+        "kind": "start",
+        "duration": 9,
+        "pitch": 38
+      },
+      {
+        "cycle": 7528922,
+        "kind": "note",
+        "duration": 13,
+        "pitch": 240
+      },
+      {
+        "cycle": 7560217,
+        "kind": "note",
+        "duration": 13,
+        "pitch": 240
+      },
+      {
+        "cycle": 7591502,
+        "kind": "note",
+        "duration": 12,
+        "pitch": 224
+      },
+      {
+        "cycle": 7620211,
+        "kind": "note",
+        "duration": 12,
+        "pitch": 224
+      },
+      {
+        "cycle": 7648910,
+        "kind": "note",
+        "duration": 11,
+        "pitch": 208
+      },
+      {
+        "cycle": 7675033,
+        "kind": "note",
+        "duration": 11,
+        "pitch": 208
+      },
+      {
+        "cycle": 7701146,
+        "kind": "note",
+        "duration": 10,
+        "pitch": 192
+      },
+      {
+        "cycle": 7724683,
+        "kind": "note",
+        "duration": 10,
+        "pitch": 192
+      },
+      {
+        "cycle": 7748210,
+        "kind": "note",
+        "duration": 9,
+        "pitch": 176
+      },
+      {
+        "cycle": 7769147,
+        "kind": "note",
+        "duration": 9,
+        "pitch": 176
+      },
+      {
+        "cycle": 7790074,
+        "kind": "note",
+        "duration": 8,
+        "pitch": 160
+      },
+      {
+        "cycle": 7808425,
+        "kind": "note",
+        "duration": 8,
+        "pitch": 160
+      },
+      {
+        "cycle": 7826766,
+        "kind": "note",
+        "duration": 7,
+        "pitch": 144
+      },
+      {
+        "cycle": 7842517,
+        "kind": "note",
+        "duration": 7,
+        "pitch": 144
+      },
+      {
+        "cycle": 7858258,
+        "kind": "note",
+        "duration": 6,
+        "pitch": 128
+      },
+      {
+        "cycle": 7871421,
+        "kind": "note",
+        "duration": 6,
+        "pitch": 128
+      },
+      {
+        "cycle": 7884574,
+        "kind": "note",
+        "duration": 5,
+        "pitch": 112
+      },
+      {
+        "cycle": 7896057,
+        "kind": "note",
+        "duration": 5,
+        "pitch": 112
+      },
+      {
+        "cycle": 7907530,
+        "kind": "note",
+        "duration": 4,
+        "pitch": 96
+      },
+      {
+        "cycle": 7917319,
+        "kind": "note",
+        "duration": 4,
+        "pitch": 96
+      },
+      {
+        "cycle": 7927098,
+        "kind": "note",
+        "duration": 3,
+        "pitch": 80
+      },
+      {
+        "cycle": 7935179,
+        "kind": "note",
+        "duration": 3,
+        "pitch": 80
+      },
+      {
+        "cycle": 7943250,
+        "kind": "note",
+        "duration": 2,
+        "pitch": 64
+      },
+      {
+        "cycle": 7949609,
+        "kind": "note",
+        "duration": 2,
+        "pitch": 64
+      },
+      {
+        "cycle": 7968665,
+        "kind": "done",
+        "duration": 0,
+        "pitch": 14
+      }
+    ]
+  }
+}

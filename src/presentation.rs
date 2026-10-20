@@ -1,6 +1,7 @@
 //! Host output selection, retained NTSC rendering, and aspect-preserving sizing.
 use crate::collision::Scene;
 use crate::render::{Display, HEIGHT, WIDTH};
+use crate::transition::VisualEffect;
 use crt::source::apple2::{AppleEncoder, AppleLine, AppleProfile};
 use crt::{
     CompositeConfig, OutputBufferMut, PixelFormat, RasterLayout, RenderStamp, Renderer, Sampling,
@@ -143,6 +144,7 @@ pub struct Presentation {
     mode: RenderMode,
     crt: Option<CrtDisplay>,
     simple: Vec<u8>,
+    effect: VisualEffect,
 }
 impl Presentation {
     pub fn new(
@@ -155,6 +157,7 @@ impl Presentation {
             mode,
             crt: None,
             simple: vec![0; WIDTH * HEIGHT * 4],
+            effect: VisualEffect::None,
         })
     }
     pub fn window_mut(&mut self) -> &mut Window {
@@ -182,6 +185,30 @@ impl Presentation {
         display.invalidate();
     }
     pub fn paint(&mut self, scene: &mut Scene, display: &mut Display) -> Result<(), String> {
+        self.paint_effect(scene, display, VisualEffect::None)
+    }
+
+    pub fn paint_effect(
+        &mut self,
+        scene: &mut Scene,
+        display: &mut Display,
+        effect: VisualEffect,
+    ) -> Result<(), String> {
+        if self.effect != effect {
+            self.effect = effect;
+            display.invalidate();
+        }
+        if effect == VisualEffect::None {
+            return self.paint_scene(scene, display);
+        }
+        let mut picture = scene.clone();
+        effect.apply(&mut picture);
+        self.paint_scene(&mut picture, display)?;
+        display.acknowledge(scene);
+        Ok(())
+    }
+
+    fn paint_scene(&mut self, scene: &mut Scene, display: &mut Display) -> Result<(), String> {
         let (width, height) = self.host.size();
         if width == 0 || height == 0 {
             return Ok(());

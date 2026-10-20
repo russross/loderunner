@@ -8,6 +8,7 @@ use crate::render::Display;
 use crate::score::Score;
 use crate::sound::Sound;
 use crate::timing::Clock;
+use crate::transition::VisualEffect;
 use lode_trace::{
     Action, Actor, ActorId, Cell, Facing, Hole, Life, Phase, Session, Snapshot, Tile,
 };
@@ -33,6 +34,8 @@ pub struct Game {
     pub speaker: Speaker,
     pub sound: Sound,
     pub clock: Clock,
+    pub visual_effect: VisualEffect,
+    pub transitioning: bool,
     guard_facings: [Facing; 5],
 }
 
@@ -42,7 +45,7 @@ pub struct Progress {
     pub level: u8,
     pub attempt: u32,
     pub phase: Phase,
-    pub lives: u8,
+    pub lives_used: u32,
     pub exit_available: bool,
 }
 
@@ -52,7 +55,7 @@ impl Progress {
             level,
             attempt: 0,
             phase: Phase::Playing,
-            lives: 5,
+            lives_used: 1,
             exit_available: false,
         }
     }
@@ -81,6 +84,8 @@ impl Game {
             speaker: Speaker::default(),
             sound: Sound::default(),
             clock: Clock::new(paced),
+            visual_effect: VisualEffect::None,
+            transitioning: false,
             guard_facings: [Facing::Right; 5],
         };
         game.populate_board();
@@ -154,7 +159,7 @@ impl Game {
         }
         let (sprite, x, y) = self.player_sprite_coordinates();
         self.overlay_shape(sprite, x, y);
-        self.paint_status(self.session.level, 5, Score::default());
+        self.paint_status(self.session.level, self.session.lives_used, self.score);
     }
 
     pub fn player_sprite_coordinates(&self) -> (Sprite, u8, u8) {
@@ -223,7 +228,7 @@ impl Game {
                 attempt: self.session.attempt,
                 phase: self.session.phase,
                 score: self.score.decimal(),
-                lives: self.session.lives,
+                lives_used: self.session.lives_used,
                 exit_available: self.session.exit_available,
             },
             actors,

@@ -1,4 +1,4 @@
-use lode_trace::Tile;
+use lode_trace::{Phase, Tile};
 use loderunner::recording::Recording;
 use loderunner::session::{Configuration, Run};
 use loderunner::storage::LevelRecord;
@@ -21,12 +21,25 @@ fn round_trip(configuration: Configuration, deliveries: &[Option<u8>]) -> Record
     let mut recording = Recording::new(configuration.clone());
     let mut original = Run::new(configuration, false).unwrap();
     for &delivery in deliveries {
+        let transition = matches!(
+            original.game.session.phase,
+            Phase::Died | Phase::LevelCleared
+        );
         original.step(delivery).unwrap();
-        recording.push(original.last_inputs()).unwrap();
+        if !transition {
+            recording.push(original.last_inputs()).unwrap();
+        }
     }
     let recording = Recording::from_json(&recording.to_json().unwrap()).unwrap();
     let mut playback = Run::new(recording.configuration.clone(), false).unwrap();
     for round in 0..recording.rounds {
+        if matches!(
+            playback.game.session.phase,
+            Phase::Died | Phase::LevelCleared
+        ) {
+            playback.step(None).unwrap();
+        }
+        playback.start_ready_level();
         playback.step(recording.key(round)).unwrap();
     }
     assert_eq!(original.trace().unwrap(), playback.trace().unwrap());
@@ -67,7 +80,7 @@ fn repeated_keys_pause_death_and_restart_reexecute() {
 fn malformed_recordings_and_unsupported_observations_are_rejected() {
     let recording = Recording::new(configuration(&[(5, 15, Tile::Player)]));
     let text = recording.to_json().unwrap();
-    assert!(Recording::from_json(&text.replace("\"version\": 1", "\"version\": 2")).is_err());
+    assert!(Recording::from_json(&text.replace("\"version\": 2", "\"version\": 3")).is_err());
     assert!(
         Recording::from_json(&text.replace("\"inputs\": {}", "\"inputs\": {\"0\": 204}")).is_err()
     );

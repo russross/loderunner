@@ -98,19 +98,11 @@ impl Game {
         };
         match Control::from_key(code) {
             Some(Control::Pause) => self.session.phase = Phase::Paused,
-            Some(Control::Sacrifice) => self.player.alive = false,
-            Some(Control::EndGame) => {
-                self.session.lives = 1;
-                self.player.alive = false;
-            }
+            Some(Control::Sacrifice | Control::EndGame) => self.player.alive = false,
             Some(Control::SkipLevel) => {
-                self.session.lives = self.session.lives.wrapping_add(1);
                 self.session.level = self.session.level.wrapping_add(1);
                 self.skip_level = true;
                 self.player.alive = false;
-            }
-            Some(Control::ExtraLife) => {
-                self.session.lives = self.session.lives.saturating_add(1);
             }
             Some(Control::ToggleSound) => self.sound.enabled = !self.sound.enabled,
             Some(Control::Faster) => {

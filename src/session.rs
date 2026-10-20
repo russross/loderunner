@@ -3,10 +3,14 @@ use crate::board::Level;
 use crate::devices::keyboard::Control;
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
-use crate::score::Score;
-use crate::sound::Note;
-use crate::state::{Game, Progress};
+use crate::sound::{NoteWork, render_note};
+use crate::state::Game;
 use crate::storage::{LevelRecord, original_level};
+use crate::timing::NTSC_CPU_HZ;
+use crate::transition::{
+    BLINK_HALF_PERIOD_CYCLES, BONUS_DURATION_US, BONUS_NOTE_US, BONUS_SCORE_US, DEATH_DURATION_US,
+    DEATH_NOTES, IRIS_FRAMES, VisualEffect,
+};
 use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Round, Snapshot, Trace};
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +58,17 @@ pub struct Run {
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
     timing_model: Model,
+    waiting_started: u64,
+}
+
+// Ready waits are host interaction. Trace boundaries describe a board ready for
+// gameplay, without retaining its blinking phase or the key that dismisses it.
+fn trace_snapshot(game: &Game) -> Snapshot {
+    let mut snapshot = game.snapshot();
+    if snapshot.session.phase == Phase::Waiting {
+        snapshot.session.phase = Phase::Playing;
+    }
+    snapshot
 }
 
 impl Run {
@@ -64,7 +79,7 @@ impl Run {
         if configuration.wait_on_level_start {
             game.session.phase = Phase::Waiting;
         }
-        let initial = game.snapshot();
+        let initial = trace_snapshot(&game);
         let header = Header {
             version: FORMAT_VERSION,
             source: "apple2-reference-113db1c16951717259c9ae5e128958b29de0634d".into(),
@@ -86,6 +101,7 @@ impl Run {
             last_timing: None,
             last_model_cycles: None,
             timing_model: Model::calibrated(),
+            waiting_started: 0,
         })
     }
 
@@ -100,8 +116,30 @@ impl Run {
         delivery: Option<u8>,
         checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
     ) -> Result<(), String> {
+        if self.game.session.phase == Phase::Waiting {
+            self.last_inputs.clear();
+            self.last_timing = None;
+            self.last_model_cycles = None;
+            if delivery.is_some() {
+                self.start_ready_level();
+            } else {
+                let elapsed = self.game.clock.output_cycles() - self.waiting_started;
+                self.game.visual_effect = if (elapsed / BLINK_HALF_PERIOD_CYCLES).is_multiple_of(2)
+                {
+                    VisualEffect::None
+                } else {
+                    let (sprite, half_x, y) = self.game.player_sprite_coordinates();
+                    VisualEffect::HidePlayer { sprite, half_x, y }
+                };
+                self.game.clock.advance_presentation(NTSC_CPU_HZ / 200);
+            }
+            checkpoint(&mut self.game)?;
+            self.game.clock.checkpoint();
+            return Ok(());
+        }
         self.last_start = self.game.clock.cycles;
         let phase = self.game.session.phase;
+        let transition = matches!(phase, Phase::Died | Phase::LevelCleared);
         self.game.clock.begin_interval();
         if phase == Phase::Playing {
             self.game.clock.events.add(TimingEvent::Round, 1);
@@ -112,7 +150,12 @@ impl Run {
             self.game.keyboard.deliver(code);
         }
         let mut journal = Journal::new();
-        let inputs = self.advance_phase(phase, &mut journal)?;
+        let inputs = if transition {
+            self.transition(checkpoint)?;
+            Vec::new()
+        } else {
+            self.advance_phase(phase, &mut journal)?
+        };
 
         // Boundary events describe the completed phase before model evaluation.
         // All queued graphics and audio belong to this single committed interval.
@@ -137,10 +180,12 @@ impl Run {
             end_phase: self.game.session.phase,
             events: self.game.clock.finish_events(),
         };
-        self.game
-            .clock
-            .commit(&self.timing_model, &interval, &mut self.game.speaker);
-        self.last_model_cycles = Some(self.game.clock.cycles - self.last_start);
+        if !transition {
+            self.game
+                .clock
+                .commit(&self.timing_model, &interval, &mut self.game.speaker);
+        }
+        self.last_model_cycles = (!transition).then_some(self.game.clock.cycles - self.last_start);
 
         // Submit committed audio and graphics before pacing. Observation records
         // the same boundary for capture, replay and external machine validation.
@@ -151,7 +196,7 @@ impl Run {
         if self.tracing {
             self.rounds.push(
                 self.observer
-                    .finish_round(self.last_start, self.game.snapshot(), inputs, journal)
+                    .finish_round(self.last_start, trace_snapshot(&self.game), inputs, journal)
                     .map_err(|error| error.to_string())?,
             );
         }
@@ -165,23 +210,8 @@ impl Run {
             let inputs = self.game.play_round(journal)?;
             return Ok(inputs);
         }
-        if matches!(phase, Phase::Died | Phase::LevelCleared) {
-            self.transition()?;
-            return Ok(Vec::new());
-        }
-
         let code = self.game.keyboard.observe();
         match (phase, code) {
-            (Phase::GameOver, Some(_)) => {
-                self.level_index = self.configuration.start;
-                self.reload(true)?;
-            }
-            (Phase::Waiting, Some(code)) => {
-                if code >= 0xa0 {
-                    self.game.player.command = Command::from_key(code);
-                }
-                self.game.session.phase = Phase::Playing;
-            }
             (Phase::Paused, Some(code)) if Control::from_key(code) == Some(Control::Pause) => {
                 self.game.session.phase = Phase::Playing;
             }
@@ -197,58 +227,124 @@ impl Run {
             .collect())
     }
 
-    fn transition(&mut self) -> Result<(), String> {
+    fn transition(
+        &mut self,
+        checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.game.transitioning = true;
         if self.game.session.phase == Phase::LevelCleared {
             self.game.session.level = self.game.session.level.wrapping_add(1);
             self.level_index += 1;
-            self.game.session.lives = self.game.session.lives.saturating_add(1);
-            for counter in (1..=15_u8).rev() {
+            self.game.session.lives_used = 1;
+            self.game.put_status();
+            self.game.sound.clear();
+            let start = self.game.clock.output_cycles();
+            for (step, &score_us) in BONUS_SCORE_US.iter().enumerate() {
+                let end_us = BONUS_SCORE_US
+                    .get(step + 1)
+                    .copied()
+                    .unwrap_or(BONUS_DURATION_US);
                 self.game.add_score(100);
-                for _ in 0..3 {
-                    self.game.sound.append_note(Note {
+                for &note_us in &BONUS_NOTE_US[step * 3..step * 3 + 3] {
+                    let onset = start + note_us * NTSC_CPU_HZ / 1_000_000;
+                    let note = NoteWork {
+                        enabled: self.game.sound.enabled,
                         duration: 6,
-                        pitch: counter << 4,
-                    })?;
-                    self.game.play_sound_section();
+                        pitch: (15 - step as u8) << 4,
+                        low_counter: 1,
+                    };
+                    render_note(note, |offset| self.game.speaker.access(onset + offset));
                 }
+                // Submit each score step with its three notes as one small audio
+                // batch. Preparation and redraw costs never enter the trace clock.
+                let target = start + end_us * NTSC_CPU_HZ / 1_000_000;
+                self.game
+                    .clock
+                    .advance_presentation(target - self.game.clock.output_cycles());
+                debug_assert!(end_us > score_us);
+                checkpoint(&mut self.game)?;
+                self.game.clock.checkpoint();
             }
         } else {
-            self.game.session.lives = self.game.session.lives.wrapping_sub(1);
+            self.game.session.lives_used = self
+                .game
+                .session
+                .lives_used
+                .checked_add(1)
+                .ok_or("life-used counter overflow")?;
             if self.game.skip_level {
                 self.level_index += 1;
+                self.game.session.lives_used = 1;
             }
-            for (duration, pitch) in (2..=13_u8).zip((0x40..=0xf0_u8).step_by(16)) {
+            self.game.put_status();
+            self.game.sound.clear();
+            let start = self.game.clock.output_cycles();
+            for (index, note) in DEATH_NOTES.iter().enumerate() {
+                let onset = start + note.onset_us * NTSC_CPU_HZ / 1_000_000;
+                render_note(
+                    NoteWork {
+                        enabled: self.game.sound.enabled,
+                        duration: note.duration,
+                        pitch: note.pitch,
+                        low_counter: (DEATH_NOTES.len() - index) as u8,
+                    },
+                    |offset| self.game.speaker.access(onset + offset),
+                );
+                let end_us = DEATH_NOTES
+                    .get(index + 1)
+                    .map_or(DEATH_DURATION_US, |next| next.onset_us);
+                let target = start + end_us * NTSC_CPU_HZ / 1_000_000;
                 self.game
-                    .sound
-                    .append_notes(&[Note { duration, pitch }, Note { duration, pitch }])?;
+                    .clock
+                    .advance_presentation(target - self.game.clock.output_cycles());
+                checkpoint(&mut self.game)?;
+                self.game.clock.checkpoint();
             }
-            while !self.game.sound.is_empty() {
-                self.game.play_sound_section();
-            }
-            self.game.play_sound_section();
-            if self.game.session.lives == 0 {
-                self.game.session.phase = Phase::GameOver;
-                return Ok(());
+            // The final empty sound call retains the landing-whistle state across
+            // reloads, without adding transition work to the gameplay model.
+            if self.game.falling_sound {
+                self.game.falling_pitch = self.game.falling_pitch.wrapping_add(1);
             }
         }
+        self.iris(false, checkpoint)?;
         if self.level_index >= self.configuration.levels.len() {
             self.level_index = 0;
             self.game.difficulty += 1;
         }
-        self.reload(false)
+        self.reload()?;
+        self.game.clock.begin_interval();
+        self.iris(true, checkpoint)?;
+        self.game.transitioning = false;
+        self.game.visual_effect = VisualEffect::None;
+        self.waiting_started = self.game.clock.output_cycles();
+        Ok(())
     }
 
-    fn reload(&mut self, new_game: bool) -> Result<(), String> {
-        // A new game resets progress, while another attempt retains it. Board
-        // loading leaves preferences, device history and facing history in place.
-        if new_game {
-            self.game.session = Progress::new((self.configuration.start + 1) as u8);
-            self.game.score = Score::default();
-            self.game.difficulty = 0;
-            self.game.resurrection_col = 0;
-        } else {
-            self.game.session.attempt += 1;
+    fn iris(
+        &mut self,
+        opening: bool,
+        checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
+    ) -> Result<(), String> {
+        for step in 1..=IRIS_FRAMES {
+            let frame = if opening { step } else { IRIS_FRAMES - step };
+            self.game.visual_effect = VisualEffect::Iris { frame };
+            let duration =
+                step * NTSC_CPU_HZ / IRIS_FRAMES - (step - 1) * NTSC_CPU_HZ / IRIS_FRAMES;
+            self.game.clock.advance_presentation(duration);
+            checkpoint(&mut self.game)?;
+            self.game.clock.checkpoint();
         }
+        Ok(())
+    }
+
+    fn reload(&mut self) -> Result<(), String> {
+        // Board loading runs at host speed and preserves session preferences.
+        self.game.session.attempt = self
+            .game
+            .session
+            .attempt
+            .checked_add(1)
+            .ok_or("attempt counter overflow")?;
         self.game.reload_board(&self.levels[self.level_index]);
         self.game.session.phase = if self.configuration.wait_on_level_start {
             Phase::Waiting
@@ -256,6 +352,27 @@ impl Run {
             Phase::Playing
         };
         self.game.put_status();
+        Ok(())
+    }
+
+    pub fn start_ready_level(&mut self) {
+        if self.game.session.phase == Phase::Waiting {
+            self.game.session.phase = Phase::Playing;
+            self.game.visual_effect = VisualEffect::None;
+            self.game.player.command = Command::Stop;
+            self.game.keyboard.acknowledge();
+        }
+    }
+
+    pub fn present_initial(
+        &mut self,
+        checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.game.transitioning = true;
+        self.iris(true, checkpoint)?;
+        self.game.visual_effect = VisualEffect::None;
+        self.game.transitioning = false;
+        self.waiting_started = self.game.clock.output_cycles();
         Ok(())
     }
 
@@ -267,7 +384,7 @@ impl Run {
             header: self.header.clone(),
             rounds: self.rounds.clone(),
             final_delta: self.game.clock.cycles - self.last_start,
-            final_state: self.game.snapshot(),
+            final_state: trace_snapshot(&self.game),
         };
         trace.validate().map_err(|error| error.to_string())?;
         Ok(trace)
@@ -279,7 +396,7 @@ impl Run {
             (
                 round.clone(),
                 self.game.clock.cycles - self.last_start,
-                self.game.snapshot(),
+                trace_snapshot(&self.game),
             )
         })
     }
@@ -323,6 +440,7 @@ pub fn replay(expected: &Trace) -> Result<Trace, String> {
         return Err("replay initial configuration or state differs".into());
     }
     for round in &expected.rounds {
+        run.start_ready_level();
         if round.inputs.len() > 1
             || round
                 .inputs

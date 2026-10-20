@@ -1,14 +1,19 @@
 use crt_native::BackendPreference;
+use lode_trace::Phase;
 use loderunner::cli::{Arguments, CONTROLS, USAGE};
 use loderunner::devices::keyboard::{Control, ESCAPE, RETURN};
 use loderunner::presentation::Presentation;
+use loderunner::render::Display;
 use loderunner::render::scaled_size;
 use loderunner::runtime::Session;
 use loderunner::timing::NTSC_CPU_HZ;
+use loderunner::transition::VisualEffect;
+use sdl2::EventPump;
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Mod};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::thread::sleep;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,10 +71,27 @@ fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
     }
 }
 
+// Animation input never dismisses the later ready prompt. Native close requests
+// survive draining, and exposure or resize requests refresh the next frame.
+fn poll_transition(events: &mut EventPump, quit: &Cell<bool>, display: &mut Display) {
+    for event in events.poll_iter() {
+        match event {
+            Event::Quit { .. } => quit.set(true),
+            Event::KeyDown {
+                keycode: Some(Keycode::Q),
+                keymod,
+                ..
+            } if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) => quit.set(true),
+            Event::Window { .. } => display.request_present(),
+            _ => (),
+        }
+    }
+}
+
 fn display(mut session: Session) -> Result<(), String> {
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
-    let (width, height) = scaled_size(5);
+    let (width, height) = scaled_size(4);
     let window = video
         .window("Lode Runner", width, height)
         .position_centered()
@@ -84,6 +106,7 @@ fn display(mut session: Session) -> Result<(), String> {
         BackendPreference::from_env()?,
     )?;
     let commands = RefCell::new(Vec::new());
+    let quit_requested = Cell::new(false);
     let events = RefCell::new(sdl.event_pump()?);
     let audio = sdl.audio()?;
     let desired = AudioSpecDesired {
@@ -98,12 +121,19 @@ fn display(mut session: Session) -> Result<(), String> {
     let mut previous_output = 0.0;
 
     // Initialize the lazy GPU pipeline before starting the live audio timeline.
-    presentation.paint(&mut session.run.game.scene, &mut session.run.game.display)?;
+    presentation.paint_effect(
+        &mut session.run.game.scene,
+        &mut session.run.game.display,
+        VisualEffect::Iris { frame: 0 },
+    )?;
     queue.resume();
 
     // Window commands remain live during playback; gameplay input is selected by the session.
     session.execute(
         |game| {
+            if quit_requested.get() {
+                return Ok((true, None));
+            }
             let mut delivery = None;
             for event in events.borrow_mut().poll_iter() {
                 match event {
@@ -132,7 +162,7 @@ fn display(mut session: Session) -> Result<(), String> {
                             if !repeat {
                                 commands.borrow_mut().push(command);
                             }
-                        } else {
+                        } else if !repeat || game.session.phase != Phase::Waiting {
                             delivery = key_code(key, keymod);
                         }
                     }
@@ -157,8 +187,8 @@ fn display(mut session: Session) -> Result<(), String> {
                     WindowCommand::ToggleRenderer => presentation.toggle(&mut game.display),
                 }
             }
-            let final_frame =
-                (u128::from(game.clock.cycles) * u128::from(rate) / u128::from(NTSC_CPU_HZ)) as u64;
+            let final_frame = (u128::from(game.clock.output_cycles()) * u128::from(rate)
+                / u128::from(NTSC_CPU_HZ)) as u64;
             let mut samples = game.speaker.sample_frames(
                 sample_frame,
                 (final_frame - sample_frame) as usize,
@@ -175,7 +205,7 @@ fn display(mut session: Session) -> Result<(), String> {
             sample_frame = final_frame;
             game.speaker
                 .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
-            presentation.paint(&mut game.scene, &mut game.display)?;
+            presentation.paint_effect(&mut game.scene, &mut game.display, game.visual_effect)?;
 
             // Transition tunes can span seconds. Pump native window events while
             // waiting, retaining queued keys for the next normal input boundary.
@@ -184,7 +214,13 @@ fn display(mut session: Session) -> Result<(), String> {
                     break;
                 }
                 events.borrow_mut().pump_events();
-                std::thread::sleep(remaining.min(Duration::from_millis(5)));
+                if game.transitioning {
+                    poll_transition(&mut events.borrow_mut(), &quit_requested, &mut game.display);
+                }
+                sleep(remaining.min(Duration::from_millis(5)));
+            }
+            if game.transitioning {
+                poll_transition(&mut events.borrow_mut(), &quit_requested, &mut game.display);
             }
             Ok(())
         },

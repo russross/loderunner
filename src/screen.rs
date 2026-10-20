@@ -12,15 +12,20 @@ impl Game {
     }
 
     pub fn put_status(&mut self) {
-        self.paint_status(self.session.level, self.session.lives, self.score);
+        self.paint_status(self.session.level, self.session.lives_used, self.score);
     }
 
-    // Board initialization paints the default counters before reload paints the
-    // retained progress. Both passes are part of the modeled drawing work.
-    pub fn paint_status(&mut self, level: u8, lives: u8, score: Score) {
+    // The three-digit counter shows attempts used on this board. Larger counts
+    // retain their full value in session state and display their lower digits.
+    pub fn paint_status(&mut self, level: u8, lives_used: u32, score: Score) {
         self.scene.status_border();
-        self.put_text(Layer::Foreground, 0, 16, "SCORE        MEN    LEVEL   ");
-        self.put_text(Layer::Foreground, 16, 16, &format!("{lives:03}"));
+        self.put_text(Layer::Foreground, 0, 16, "SCORE       USED    LEVEL   ");
+        self.put_text(
+            Layer::Foreground,
+            16,
+            16,
+            &format!("{:03}", lives_used % 1000),
+        );
         self.put_text(Layer::Foreground, 25, 16, &format!("{level:03}"));
         self.paint_score(score);
     }

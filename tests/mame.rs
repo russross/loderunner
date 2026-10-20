@@ -1,6 +1,6 @@
 use lode_mame_validation::{Options, validate};
 use lode_trace::apple2::Sample;
-use lode_trace::{Change, Motion, Phase, Tile};
+use lode_trace::{Change, Motion, Tile};
 use loderunner::session::{Configuration, Run, capture};
 use loderunner::storage::{LevelRecord, original_level};
 use std::fs;
@@ -164,11 +164,7 @@ fn airborne_restarts_preserve_sound_state_without_reapplying_profile() {
     let mut run = Run::new(config, false).unwrap();
     let mut sound_states = vec![(run.game.falling_pitch, run.game.falling_sound)];
     for _ in 0..100 {
-        if run.game.session.phase == Phase::GameOver {
-            run.step(Some(0xa0)).unwrap();
-            sound_states.push((run.game.falling_pitch, run.game.falling_sound));
-            run.step(None).unwrap();
-            sound_states.push((run.game.falling_pitch, run.game.falling_sound));
+        if run.game.session.lives_used >= 7 {
             let trace = run.trace().unwrap();
             let report = validate(&trace, &options()).unwrap();
             assert_eq!(report.initialization, "fixed-v2");
@@ -194,7 +190,7 @@ fn airborne_restarts_preserve_sound_state_without_reapplying_profile() {
         run.step(None).unwrap();
         sound_states.push((run.game.falling_pitch, run.game.falling_sound));
     }
-    panic!("airborne collisions did not reach game over");
+    panic!("airborne collisions did not reach six reloads");
 }
 
 #[test]
@@ -228,7 +224,7 @@ fn waiting_pause_and_return_match_machine() {
 
 #[test]
 #[ignore = "requires MAME 0.276 and Apple IIe enhanced ROMs"]
-fn death_restart_completion_and_scored_game_over_match_machine() {
+fn gameplay_resumes_after_death_restart_and_completion_without_transition_validation() {
     let config = configuration(vec![LevelRecord(original_level(1).unwrap())], false);
     let mut keys = vec![None; 12];
     keys[0] = Some(0xca);
@@ -291,7 +287,8 @@ fn death_restart_completion_and_scored_game_over_match_machine() {
     let mut keys = vec![Some(0xcc), None, None, None, None, Some(0xa0)];
     keys.extend(deaths);
     let trace = capture(config, &keys).unwrap();
-    assert_eq!(trace.final_state.session.phase, lode_trace::Phase::GameOver);
+    assert_eq!(trace.final_state.session.phase, lode_trace::Phase::Playing);
+    assert_eq!(trace.final_state.session.lives_used, 6);
     validate(&trace, &options()).unwrap();
 }
 

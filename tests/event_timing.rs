@@ -1,5 +1,5 @@
 use lode_trace::{Phase, Tile};
-use loderunner::event_timing::{Model, TimingEvent, Work};
+use loderunner::event_timing::{TimingEvent, Work};
 use loderunner::session::{Configuration, Run, replay};
 use loderunner::storage::LevelRecord;
 
@@ -111,36 +111,25 @@ fn falling_defers_input_and_landing_keeps_ordered_sound_work() {
     );
 }
 
-// Reloads preserve pending transition notes and count the new board's actual
-// rendering. The same model commits both the dying turn and its transition.
+// Application transitions advance audio and presentation while gameplay time
+// stays at the terminal boundary. Reload drawing adds no simulated delay.
 #[test]
-fn death_and_reload_have_no_fallback_timing_path() {
+fn death_and_reload_stop_the_gameplay_clock() {
     let mut run = run(&[(5, 15, Tile::Player), (25, 15, Tile::Gold)]);
     run.step(Some(0x81)).unwrap();
     let before = run.game.clock.cycles;
     run.step(None).unwrap();
     let interval = run.last_timing().unwrap();
     assert_eq!(interval.phase, Phase::Died);
-    assert_eq!(
-        interval
-            .events
-            .work
-            .iter()
-            .filter(|work| matches!(work, Work::Note(_)))
-            .count(),
-        24
-    );
-    assert!(interval.events.count(TimingEvent::TileDraw) >= 896);
-    assert_eq!(
-        run.game.clock.cycles - before,
-        Model::calibrated().estimate(interval)
-    );
+    assert_eq!(run.game.clock.cycles, before);
+    assert!(run.last_model_cycles().is_none());
+    assert!(run.game.clock.output_cycles() > before);
     assert!(
         run.game
             .speaker
             .edges
             .iter()
-            .all(|edge| edge.cycle <= run.game.clock.cycles)
+            .all(|edge| edge.cycle <= run.game.clock.output_cycles())
     );
     let trace = run.trace().unwrap();
     assert_eq!(replay(&trace).unwrap(), trace);

@@ -6,7 +6,7 @@ use crate::recording::{Recording, observed_key};
 use crate::session::{Configuration, Run};
 use crate::state::Game;
 use lode_mame_validation::validate_stream;
-use lode_trace::Trace;
+use lode_trace::{Phase, Trace};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -131,31 +131,55 @@ impl Session {
         };
 
         let mut round = 0;
+        let mut gameplay_round = 0;
         self.run.game.clock.start_pacing();
         let result = (|| -> Result<(), String> {
-            while self.end.is_none_or(|end| round < end) {
+            self.run.present_initial(&mut present)?;
+            while self.end.is_none_or(|end| {
+                if self.expected.is_some() {
+                    round < end
+                } else {
+                    gameplay_round < end
+                }
+            }) {
                 if worker.as_ref().is_some_and(|worker| worker.is_finished()) {
                     break;
+                }
+                if !matches!(self.arguments.playback, Playback::Live)
+                    || !self.arguments.display
+                    || !self.arguments.inputs.is_empty()
+                {
+                    self.run.start_ready_level();
                 }
                 let (quit, live) = poll(&mut self.run.game)?;
                 if quit {
                     break;
                 }
+                let transition = matches!(
+                    self.run.game.session.phase,
+                    Phase::Died | Phase::LevelCleared
+                );
                 let delivery = if let Some(playback) = &self.playback {
-                    playback.key(round)
+                    playback.key(gameplay_round)
                 } else if let Some(expected) = &self.expected {
                     observed_key(&expected.rounds[round].inputs)?
                 } else {
                     self.arguments
                         .inputs
-                        .binary_search_by_key(&round, |&(index, _)| index)
+                        .binary_search_by_key(&gameplay_round, |&(index, _)| index)
                         .ok()
                         .map(|index| self.arguments.inputs[index].1)
                         .or(live)
                 };
                 self.run.step_with_checkpoint(delivery, &mut present)?;
-                if let Some(recording) = &mut self.recording {
+                if self.run.last_timing().is_none() {
+                    continue;
+                }
+                if !transition && let Some(recording) = &mut self.recording {
                     recording.push(self.run.last_inputs())?;
+                }
+                if !transition {
+                    gameplay_round += 1;
                 }
                 if let Some(expected) = &self.expected
                     && self
@@ -181,7 +205,7 @@ impl Session {
                     self.run
                         .game
                         .speaker
-                        .discard_before(self.run.game.clock.cycles);
+                        .discard_before(self.run.game.clock.output_cycles());
                 }
             }
             if let Some(expected) = &self.expected

@@ -45,7 +45,6 @@ pub struct Options {
     pub work: Option<PathBuf>,
     pub timeout: Duration,
     pub gameplay: Tolerance,
-    pub transitions: Tolerance,
     pub fixed_initialization: bool,
     pub profile_timing: bool,
 }
@@ -61,10 +60,6 @@ impl Default for Options {
             gameplay: Tolerance {
                 cycles: 2000,
                 percent: 10,
-            },
-            transitions: Tolerance {
-                cycles: 20_000_000,
-                percent: 0,
             },
             fixed_initialization: true,
             profile_timing: false,
@@ -86,7 +81,6 @@ pub struct Report {
     pub mame_version: String,
     pub initialization: &'static str,
     pub gameplay_tolerance: Tolerance,
-    pub transition_tolerance: Tolerance,
     pub intervals: usize,
     pub timing: Vec<Timing>,
     pub work: PathBuf,
@@ -518,6 +512,7 @@ pub fn validate_stream(
             .map_err(|error| error.to_string())?;
         }
         let round = &expected.rounds[index];
+        let transition = matches!(previous.phase, Phase::Died | Phase::LevelCleared);
         if round.inputs.len() > 1
             || round
                 .inputs
@@ -550,7 +545,7 @@ pub fn validate_stream(
             .map_err(|error| error.to_string())?;
         let mut logical_expected = round.clone();
         logical_expected.start_delta = actual.start_delta;
-        if logical_expected != actual {
+        if !transition && logical_expected != actual {
             write_json(
                 &machine.work.join("difference.json"),
                 &Difference::Round {
@@ -576,18 +571,15 @@ pub fn validate_stream(
             .cycle
             .checked_sub(previous.cycle)
             .ok_or("machine clock moved backwards")?;
-        let tolerance = if previous.phase == Phase::Playing && sample.phase == Phase::Playing {
-            options.gameplay
-        } else {
-            options.transitions
-        };
-        timing.push(Timing {
-            interval: index,
-            phase: previous.phase,
-            expected: expected_cycles,
-            actual: actual_cycles,
-        });
-        if !tolerance.accepts(expected_cycles, actual_cycles) {
+        if !transition {
+            timing.push(Timing {
+                interval: index,
+                phase: previous.phase,
+                expected: expected_cycles,
+                actual: actual_cycles,
+            });
+        }
+        if !transition && !options.gameplay.accepts(expected_cycles, actual_cycles) {
             write_json(
                 &machine.work.join("difference.json"),
                 &Difference::Timing {
@@ -623,7 +615,6 @@ pub fn validate_stream(
         },
         intervals: expected.rounds.len(),
         gameplay_tolerance: options.gameplay,
-        transition_tolerance: options.transitions,
         timing,
         work: machine.work.clone(),
     };

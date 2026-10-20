@@ -6,7 +6,9 @@ Lode Runner
 
 The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 development libraries, and pkg-config are required. The sibling `../crt` crate supplies the default NTSC/CRT pipeline; keep it checked out beside this project. The game in `src/` uses native game state, composed sprites, and event timing. `src/trace/` defines gameplay observations; `src/mame/` validates them against the original Apple II program. Reference assets and analysis remain in `sources/`.
 
-Faithful emulation covers core level gameplay: from the start of active play through the committed death or level-completion boundary. This includes movement, digging, guards, gold, holes, exits, collisions, in-level scoring, sound, and gameplay timing. Level selection, ready screens, pause, death/completion presentation and bonuses, reloads, game-over restart, and host controls are application behavior outside that fidelity guarantee. High score tracking and initials entry are absent.
+Faithful emulation covers core level gameplay: from the start of active play through the committed death or level-completion boundary. This includes movement, digging, guards, gold, holes, exits, collisions, in-level scoring, sound, and gameplay timing. Level selection, ready screens, pause, death/completion presentation and bonuses, reloads, and host controls are application behavior outside that fidelity guarantee. High score tracking and initials entry are absent.
+
+Lives are unlimited. USED counts lives used on the current level, starting at one and resetting on level changes. Completion awards an animated 1,500-point bonus with the original tune; death plays the original capture tune. A circular iris closes for one second and opens for one second around immediate board preparation. The ready player blinks until a fresh keypress. [Transition timing](sources/analysis/TRANSITIONS.md) comes from one-time original-machine measurements and stays outside gameplay tracing and validation.
 
 
 Rendering and window
@@ -16,7 +18,7 @@ The default renderer sends composed scene ink through the `crt` library's Apple 
 
 Native presentation automatically uses the sibling `crt/native` GPU backend when supported, with the regular CPU pipeline as fallback. `CRT_BACKEND=cpu make run` forces CPU rendering; `CRT_BACKEND=gpu make run` requires a hardware GPU. `make smoke` exercises the headed presentation path, resize, mode switches, and GPU/CPU image agreement. Small retained updates can be faster on the CPU.
 
-The window starts at 5× native size: 1400×960. Keys 1 through 5 snap to 280×192 through 1400×960. Both output modes retain the native 280:192 aspect ratio and center the picture with black bars inside manually resized windows. CRT reconstruction uses the actual drawable pixel dimensions, including high-DPI displays.
+The window starts at 4× native size: 1120×768. Keys 1 through 5 snap to 280×192 through 1400×960. Both output modes retain the native 280:192 aspect ratio and center the picture with black bars inside manually resized windows. CRT reconstruction uses the actual drawable pixel dimensions, including high-DPI displays.
 
 A grouped keyboard-command summary prints at startup. Window shortcuts are reserved for presentation and do not enter gameplay recordings.
 
@@ -45,11 +47,11 @@ Add `--headless` for silent, full speed execution or `--display` for display, so
 
 Input recordings contain initial configuration, consumed keys indexed by interval, and an explicit endpoint. They contain no expected gameplay state or timing. Playback runs only the game unless validation is requested. Trace verification compares independently generated state, events, and timing, and validates the same executed intervals against MAME. Quitting early reports incomplete verification. Recording replaces its destination on exit; completed prefixes are also saved after execution or validation errors.
 
-`--level N` selects a starting board for live play. `--rounds N` bounds execution and is required for headless live play. All live modes wait for a starting key. `--input ROUND:HEX` schedules an original high-bit keyboard code at a zero-based interval for development:
+`--level N` selects a starting board for live play. `--rounds N` bounds execution and is required for headless live play. Interactive live play waits for a starting key. Playback, headless execution, and development input schedules start ready levels automatically; ready keys and waits are never recorded. `--input ROUND:HEX` schedules an original high-bit keyboard code at a zero-based gameplay interval for development:
 
     make run ARGS='--headless --rounds 120 --input 0:cc --record run.input'
 
-Playback uses its embedded level sectors. The game neither reads nor writes high score files. Traces use format version 3; version 2 traces are unsupported.
+Playback uses its embedded level sectors. The game neither reads nor writes high score files. Traces use format version 4 and input recordings version 2; older formats are unsupported. Traces retain only instantaneous board checkpoints between gameplay segments. Playback runs presentation sequences but dismisses ready immediately.
 
 
 MAME options
@@ -59,7 +61,7 @@ Validation requires MAME, enhanced Apple IIe ROMs (`apple2ee`), Python 3, and th
 
 `--mame PATH`, `--rompath PATH`, `--work DIR`, and `--timeout-seconds N` apply to every validation mode. The default executable is `mame` on PATH; `--mame` selects another installation. Packaged Lua plugins are discovered beside the MAME installation; `--pluginspath DIR` overrides that location. Work directories must be empty; otherwise artifacts go under `artifacts/mame-validation/`.
 
-Gameplay timing allows 2,000 cycles plus 10% of the port interval. `--tolerance-cycles N`, `--tolerance-percent N`, and `--transition-tolerance-cycles N` override timing allowances. State and events compare exactly. See [the validation interface](src/mame/README.md) and [NOTES.md](NOTES.md) for initialization and fidelity limits.
+Gameplay timing allows 2,000 cycles plus 10% of the port interval. `--tolerance-cycles N` and `--tolerance-percent N` override this allowance. Gameplay state and events compare exactly; startup and transitions are excluded. See [the validation interface](src/mame/README.md) and [NOTES.md](NOTES.md) for initialization and fidelity limits.
 
 
 Controls
@@ -68,7 +70,7 @@ Controls
 *   Arrows or I/J/K/L move. Space stops; releasing a key retains the movement command.
 *   Z/U digs left; X/O digs right.
 *   Escape pauses/resumes.
-*   Ctrl+A sacrifices; Ctrl+R ends the game; Ctrl+S mutes; Ctrl+Left/Right changes speed.
+*   Ctrl+A sacrifices; Ctrl+R restarts the current level and counts another life used; Ctrl+S mutes; Ctrl+Left/Right changes speed.
 *   Ctrl+Q quits and finishes recording.
 
 

@@ -7,6 +7,7 @@ pub const NTSC_CPU_HZ: u64 = 1_023_000;
 pub struct Clock {
     pub cycles: u64,
     pub events: Events,
+    presentation_cycles: u64,
     pending_draws: Vec<Draw>,
     epoch: Instant,
     paced: bool,
@@ -17,6 +18,7 @@ impl Clock {
         Self {
             cycles: 0,
             events: Events::default(),
+            presentation_cycles: 0,
             pending_draws: Vec::new(),
             epoch: Instant::now(),
             paced,
@@ -48,21 +50,31 @@ impl Clock {
     // The model commits a complete interval before audio submission and pacing.
     // Gameplay operations accumulate events without changing the shared clock.
     pub fn commit(&mut self, model: &Model, interval: &TimingInterval, speaker: &mut Speaker) {
-        let cycles = model.render(interval, self.cycles, speaker);
+        let cycles = model.render(interval, self.output_cycles(), speaker);
         self.cycles += cycles;
+    }
+
+    // Audio and host deadlines include application animation time. The gameplay
+    // clock remains stationary while presentation advances between boards.
+    pub fn output_cycles(&self) -> u64 {
+        self.cycles + self.presentation_cycles
+    }
+
+    pub fn advance_presentation(&mut self, cycles: u64) {
+        self.presentation_cycles += cycles;
     }
 
     // Absolute deadlines prevent host sleep overshoot from accumulating drift.
     // Headless execution commits the same intervals without sleeping.
     pub fn start_pacing(&mut self) {
-        self.epoch =
-            Instant::now() - Duration::from_secs_f64(self.cycles as f64 / NTSC_CPU_HZ as f64);
+        self.epoch = Instant::now()
+            - Duration::from_secs_f64(self.output_cycles() as f64 / NTSC_CPU_HZ as f64);
     }
 
     pub fn remaining(&self) -> Option<Duration> {
         self.paced.then(|| {
-            let deadline =
-                self.epoch + Duration::from_secs_f64(self.cycles as f64 / NTSC_CPU_HZ as f64);
+            let deadline = self.epoch
+                + Duration::from_secs_f64(self.output_cycles() as f64 / NTSC_CPU_HZ as f64);
             deadline.saturating_duration_since(Instant::now())
         })
     }

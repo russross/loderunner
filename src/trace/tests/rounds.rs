@@ -10,7 +10,7 @@ fn initial() -> Snapshot {
             attempt: 0,
             phase: Phase::Playing,
             score: 0,
-            lives: 5,
+            lives_used: 5,
             exit_available: false,
         },
         actors: vec![Actor {

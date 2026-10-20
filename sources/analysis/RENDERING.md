@@ -43,7 +43,7 @@ Presentation converts the retained 280×192 RGB cache into a small RGBA picture 
 Window and input flow
 ---------------------
 
-The SDL window starts at 5× native image size, 1400×960 window-coordinate units. It is resizable and high-DPI aware. Unmodified number keys 1–5 snap to multiples of 280×192. Tab switches output modes. Key repeat does not repeatedly apply window commands. Ctrl+Q quits through the normal recording-finalization flow. The grouped startup summary lists movement, digging, pause, scores, game controls, size snapping, renderer switching and quit; --help adds startup options.
+The SDL window starts at 4× native image size, 1120×768 window-coordinate units. It is resizable and high-DPI aware. Unmodified number keys 1–5 snap to multiples of 280×192. Tab switches output modes. Key repeat does not repeatedly apply window commands. Ctrl+Q quits through the normal recording-finalization flow. The grouped startup summary lists movement, digging, pause, scores, game controls, size snapping, renderer switching and quit; --help adds startup options.
 
 Polling queues host window actions separately from gameplay delivery. The next display checkpoint drains them, applies window size or output selection, submits audio and paints the scene. Playback still ignores live gameplay delivery while processing host commands. Number/Tab commands never reach the keyboard latch or recordings; modified keys continue through normal gameplay mapping.
 
@@ -60,3 +60,9 @@ Validation
 The release executable also passed a headed X11 run with all five size keys, both output modes, wide/tall manual resizing, and clean Ctrl+Q termination. Captured window output was visually inspected. The generated recording contained only the gameplay Right key and excluded all size and renderer commands. This check used temporary recording/score storage and left no test game running.
 
 On Apple M4/macOS, `CRT_BACKEND=gpu make smoke` and `CRT_BACKEND=cpu make smoke` pass headed partial-update, resize, exposure, mode-switch and fresh-CPU image comparisons. The GPU comparison permits at most two channel code values of error. The example writes `target/presentation-smoke.ppm` and closes its window. A release displayed 90-interval level-1 run with scheduled movement/dig inputs also passes using the required-GPU backend. Dummy SDL CLI tests verify automatic fallback when a native window handle is unavailable. No gameplay or timing equations changed.
+
+
+Transition presentation
+-----------------------
+
+Presentation::paint_effect applies the application iris or ready-player hiding to a copy of Scene. Changing an effect invalidates source presentation; removing it restores the original composed ink. Contact data and gameplay draw journals are unchanged. CRT and simple modes share the same masked source, and resizing retains the current effect. The iris clips the 280 by 176 playfield while preserving the status strip. TRANSITIONS.md specifies animation timing and the gameplay/presentation clock boundary.

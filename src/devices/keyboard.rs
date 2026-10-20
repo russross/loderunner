@@ -37,7 +37,6 @@ impl Keyboard {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Control {
-    ExtraLife = 0x80,
     Sacrifice = 0x81,
     Slower = LEFT_ARROW,
     Keyboard = 0x8b,
@@ -52,7 +51,6 @@ pub enum Control {
 impl Control {
     pub fn from_key(code: u8) -> Option<Self> {
         Some(match code {
-            0x80 => Self::ExtraLife,
             0x81 => Self::Sacrifice,
             0x88 => Self::Slower,
             0x8b => Self::Keyboard,

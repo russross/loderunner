@@ -90,12 +90,52 @@ fn displayed_live_play_records_without_validation() {
     let files = Files::new("cli-sdl");
     success(command(
         &files,
-        &["--rounds", "8", "--record", "live.input"],
+        &["--rounds", "8", "--record", "live.input", "--input", "0:a0"],
     ));
     let recording =
         Recording::from_json(&fs::read_to_string(files.0.join("live.input")).unwrap()).unwrap();
     assert_eq!(recording.rounds, 8);
     success(command(&files, &["--replay", "live.input", "--headless"]));
+}
+
+#[test]
+fn recordings_exclude_transitions_and_resume_inputs_at_gameplay_boundaries() {
+    let files = Files::new("cli-transitions");
+    success(command(
+        &files,
+        &[
+            "--headless",
+            "--rounds",
+            "12",
+            "--record",
+            "play.input",
+            "--input",
+            "1:81",
+            "--input",
+            "5:81",
+            "--input",
+            "9:cc",
+        ],
+    ));
+    let text = fs::read_to_string(files.0.join("play.input")).unwrap();
+    let recording = Recording::from_json(&text).unwrap();
+    assert_eq!(recording.rounds, 12);
+    assert_eq!(recording.key(1), Some(0x81));
+    assert_eq!(recording.key(5), Some(0x81));
+    success(command(
+        &files,
+        &[
+            "--headless",
+            "--replay",
+            "play.input",
+            "--record",
+            "copy.input",
+        ],
+    ));
+    assert_eq!(
+        text,
+        fs::read_to_string(files.0.join("copy.input")).unwrap()
+    );
 }
 
 #[test]
@@ -265,11 +305,14 @@ fn machine_record_trace_verify_and_playback_share_startup_options() {
 #[test]
 fn renderer_selection_and_startup_command_summary_are_available() {
     let files = Files::new("cli-renderers");
-    let default = command(&files, &["--rounds", "2"]);
+    let default = command(&files, &["--rounds", "2", "--input", "0:a0"]);
     assert!(String::from_utf8_lossy(&default.stdout).contains("Renderer: crt"));
     success(default);
     for mode in ["crt", "simple"] {
-        let output = command(&files, &["--rounds", "2", "--renderer", mode]);
+        let output = command(
+            &files,
+            &["--rounds", "2", "--renderer", mode, "--input", "0:a0"],
+        );
         let text = String::from_utf8_lossy(&output.stdout);
         assert!(text.contains("Snap to 1x - 5x"), "{text}");
         assert!(text.contains("Tab") && text.contains("Ctrl+Q"), "{text}");

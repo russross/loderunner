@@ -92,6 +92,34 @@ impl Default for Scene {
 }
 
 impl Scene {
+    // The aperture covers only the 280 by 176 playfield. Its radius reaches
+    // the farthest corner at full progress, keeping growth linear in radius.
+    pub fn iris(&mut self, progress: f64) {
+        let radius_squared =
+            progress.clamp(0.0, 1.0).powi(2) * (140.0_f64.powi(2) + 88.0_f64.powi(2));
+        for row in 0..16 {
+            for column in 0..COLUMNS {
+                let mut visible = 0_u128;
+                for y in 0..11 {
+                    for x in 0..10 {
+                        let dx = (column * 10 + x) as f64 + 0.5 - 140.0;
+                        let dy = (row * 11 + y) as f64 + 0.5 - 88.0;
+                        if dx * dx + dy * dy < radius_squared {
+                            visible |= 1 << (y * 10 + x);
+                        }
+                    }
+                }
+                let index = row * COLUMNS + column;
+                let cell = self.cells[index];
+                self.update(
+                    index,
+                    Shape(cell.background.0 & visible),
+                    Shape(cell.contrast.0 & visible),
+                );
+            }
+        }
+    }
+
     pub fn contact(&self, sprite: u8, half_x: u8, y: u8) -> bool {
         let shape = Shape::sprite(sprite);
         let (x, y) = Self::coordinates(half_x, y);

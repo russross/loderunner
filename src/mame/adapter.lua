@@ -12,6 +12,7 @@ local index, emitted, finished = 0, false, false
 local latch, inputs, signals, log_cursor = 0, {}, {}, #debugger.consolelog
 local polling_target = 0
 local origin = nil
+local excluded_cycles, transition_started = 0, nil
 local active = false
 local reloading = false
 local observed_latch = false
@@ -140,7 +141,7 @@ local function sample()
     drain_signals()
     local current = cycles()
     if not origin then origin = current end
-    save_json(config.work .. "/sample-" .. index .. ".json", {cycle=current-origin, phase=phase,
+    save_json(config.work .. "/sample-" .. index .. ".json", {cycle=current-origin-excluded_cycles, phase=phase,
         attempt=attempt, memory=memory(), inputs=inputs, signals=signals})
     if config.profile_timing then
         save_json(config.work .. "/timing-" .. index .. ".json", timing_events)
@@ -176,6 +177,12 @@ end
 -- interval at the next game boundary, before another gameplay instruction runs.
 continue_interval = function(command)
     if command.stop then stop_session(command.save); return end
+    if phase == "Died" or phase == "LevelCleared" then
+        transition_started = cycles()
+        -- Remaining lives belong to the original application shell. Replenish
+        -- them outside gameplay so repeated captures never enter game over.
+        space:write_u8(0x98, 5)
+    end
     if type(command.key) == "number" then latch = command.key; observed_latch = false end
     index = index + 1; emitted = false
     polling_target = cycles() + 5000
@@ -223,9 +230,8 @@ local function stopped()
             stop("INIT_GAME_DATA"); stop("INIT_GAME_DATA.play_game")
             breakpoints[0x6a7d] = "pause_resume"; cpu.debug:bpset(0x6a7d, "1", "")
             stop("RECORD_HI_SCORE_DATA_TO_DISK")
-            boot="done"; phase=config.wait_on_level_start and "Waiting" or "Playing"
+            boot="done"; phase="Playing"
             active=true
-            if config.wait_on_level_start then sample(); return end
             latch=0x8b; cpu.debug:go(); return
         end
         cpu.debug:go(); return
@@ -235,6 +241,12 @@ local function stopped()
     if name == "INIT_GAME_DATA.game_loop" then
         if skip_main then skip_main=false; cpu.debug:go(); return end
         if not origin then inputs, signals = {}, {}; drain_signals(); signals = {} end
+        if transition_started then
+            excluded_cycles = excluded_cycles + cycles() - transition_started
+            transition_started = nil
+            inputs, signals = {}, {}
+            drain_signals(); signals = {}
+        end
         phase="Playing"; reloading=false; sample()
     elseif name == "INIT_GAME_DATA.died" then phase="Died"; sample()
     elseif name == "INIT_GAME_DATA.level_cleared" then phase="LevelCleared"; sample()
@@ -243,9 +255,7 @@ local function stopped()
         reloading=true; cpu.debug:go()
     elseif name == "WAIT_FOR_KEY_WITH_CURSOR_PAGE_1" then
         reloading=false
-        phase="Waiting"
-        if not config.wait_on_level_start then latch=0x8b; observed_latch=true; phase="Playing"; cpu.debug:go()
-        else sample() end
+        latch=0x8b; observed_latch=true; phase="Playing"; cpu.debug:go()
     elseif name == "INIT_GAME_DATA.play_game" then
         if phase == "Waiting" then phase="Playing"; skip_main=true; sample() else cpu.debug:go() end
     elseif name == "ESC_HANDLER" then

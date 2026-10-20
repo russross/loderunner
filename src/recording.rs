@@ -17,7 +17,7 @@ pub struct Recording {
 impl Recording {
     pub fn new(configuration: Configuration) -> Self {
         Self {
-            version: 1,
+            version: 2,
             configuration,
             rounds: 0,
             inputs: BTreeMap::new(),
@@ -41,7 +41,7 @@ impl Recording {
     // Parsing rejects unsupported formats and input outside the explicit endpoint.
     pub fn from_json(text: &str) -> Result<Self, String> {
         let recording: Self = serde_json::from_str(text).map_err(|error| error.to_string())?;
-        if recording.version != 1 {
+        if recording.version != 2 {
             return Err("unsupported input recording version".into());
         }
         if recording

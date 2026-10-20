@@ -8,7 +8,7 @@ The game uses `src/model.json`, fitted by `fit_port_model.py` from the retained 
 
 Training uses 2,054 intervals, validation selects ridge regularization using 480 intervals, and 360 held-out intervals report the frozen result. Held-out RMSE is 444 cycles, maximum absolute error 1,390 cycles, maximum relative error 2.775%, and total drift -0.423%. The earlier branch-heavy model achieved 342-cycle RMSE; procedural timing achieved 1,699. The native choice removes control-flow constraints at a modest precision cost. Original-machine state and occurrence checks remain exact.
 
-Native intervals always commit through the model. Polling costs 5,000 cycles; the pause correction is derived so Round + Input + Pause equals the independently measured 187 cycles. Run retains only the latest timing record. Sound synthesis preserves original waveform/countdown rules; model corrections adjust inter-note gaps. Replays require the coefficient set used to capture them, so traces captured with earlier coefficients do not necessarily replay under this model.
+Native in-level intervals commit through the model. Startup, bonus/death presentation, iris animation, board preparation, and ready waits do not advance gameplay time and do not enter model validation. TRANSITIONS.md defines their independent timing. In-level pause polling costs 5,000 cycles; the pause correction is derived so Round + Input + Pause equals the independently measured 187 cycles. Run retains only the latest timing record. Sound synthesis preserves original waveform/countdown rules; model corrections adjust inter-note gaps. Replays require the coefficient set used to capture them, so traces captured with earlier coefficients do not necessarily replay under this model.
 
 
 Baseline calibration experiment

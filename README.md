@@ -87,3 +87,11 @@ Development
 Portable tests cover all 150 boards, gameplay transitions, capture/reexecution, input recordings, and CLI behavior. `make mame-validation` runs the external machine suite; ordinary tests leave it ignored. `make mame-poc` runs the separate debugger capability probes. `make timing-fit TIMING_MEASUREMENTS=FILE` refits the model from retained measurements.
 
 Make drives incremental Cargo builds. `make mostlyclean` preserves the release executable; `make clean` removes build outputs too. Neither removes recordings or reference assets. Provenance and licensing remain in `sources/lode_runner_reveng/`.
+
+Optional host timing capture runs the real paced graphics/audio pipeline:
+
+    make performance TIMINGS=target/gpu-crt.csv
+    make performance BACKEND=cpu TIMINGS=target/cpu-crt.csv
+    make performance RENDERER=simple TIMINGS=target/gpu-simple.csv
+
+Each run uses the same 240-round movement/dig schedule and prints graphics mean, p99 and maximum separately for gameplay and transitions. The CSV also records audio work, total host work before pacing, output cycles and host-call intervals. `LODERUNNER_FRAME_TIMINGS=PATH` enables capture for ordinary live or recorded displayed runs. Existing output files are refused. Graphics timing includes scene preparation and native presentation, but GPU execution can remain queued; it does not measure physical scanout. The sibling CRT benchmark’s `GAME=hgr-damage` compares complete-row and bounded HGR submission with output equality, while its paced `stress` command measures completed rendering bursts.

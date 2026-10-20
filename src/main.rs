@@ -1,4 +1,7 @@
+mod frame_timings;
+
 use crt_native::BackendPreference;
+use frame_timings::FrameTimings;
 use lode_trace::Phase;
 use loderunner::cli::{Arguments, CONTROLS, USAGE};
 use loderunner::devices::keyboard::{Control, ESCAPE, LevelNavigation, RETURN};
@@ -14,7 +17,7 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Mod};
 use std::cell::{Cell, RefCell};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowCommand {
@@ -91,6 +94,7 @@ fn poll_transition(events: &mut EventPump, quit: &Cell<bool>, display: &mut Disp
 }
 
 fn display(mut session: Session) -> Result<(), String> {
+    let mut timings = FrameTimings::from_env()?;
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
     let (width, height) = scaled_size(4);
@@ -131,7 +135,7 @@ fn display(mut session: Session) -> Result<(), String> {
     queue.resume();
 
     // Window commands remain live during playback; gameplay input is selected by the session.
-    session.execute(
+    let result = session.execute(
         |game| {
             if quit_requested.get() {
                 return Ok((true, None));
@@ -177,6 +181,7 @@ fn display(mut session: Session) -> Result<(), String> {
             Ok((false, delivery))
         },
         |game| {
+            let started = timings.as_ref().map(|_| Instant::now());
             // Window actions are applied at the presentation checkpoint and never
             // enter the gameplay keyboard latch or consumed-input recordings.
             for command in commands.borrow_mut().drain(..) {
@@ -192,6 +197,7 @@ fn display(mut session: Session) -> Result<(), String> {
                     WindowCommand::ToggleRenderer => presentation.toggle(&mut game.display),
                 }
             }
+            let audio_started = started.map(|_| Instant::now());
             let final_frame = (u128::from(game.clock.output_cycles()) * u128::from(rate)
                 / u128::from(NTSC_CPU_HZ)) as u64;
             let mut samples = game.speaker.sample_frames(
@@ -210,7 +216,19 @@ fn display(mut session: Session) -> Result<(), String> {
             sample_frame = final_frame;
             game.speaker
                 .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
+            let graphics_started = started.map(|_| Instant::now());
             presentation.paint_effect(&mut game.scene, &mut game.display, game.visual_effect)?;
+            if let (Some(timings), Some(started), Some(audio), Some(graphics)) =
+                (&mut timings, started, audio_started, graphics_started)
+            {
+                timings.record(
+                    game.clock.output_cycles(),
+                    game.transitioning,
+                    started,
+                    audio,
+                    graphics,
+                );
+            }
 
             // Transition tunes can span seconds. Pump native window events while
             // waiting, retaining queued keys for the next normal input boundary.
@@ -229,7 +247,11 @@ fn display(mut session: Session) -> Result<(), String> {
             }
             Ok(())
         },
-    )
+    );
+    if let Some(timings) = timings {
+        timings.finish()?;
+    }
+    result
 }
 
 fn execute() -> Result<(), String> {

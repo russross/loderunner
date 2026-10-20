@@ -38,6 +38,59 @@ fn success(output: Output) {
 }
 
 #[test]
+fn host_timings_capture_checkpoints_and_refuse_to_overwrite() {
+    let files = Files::new("cli-timings");
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_loderunner"))
+            .args([
+                "--display",
+                "--unpaced",
+                "--renderer",
+                "simple",
+                "--rounds",
+                "2",
+                "--input",
+                "0:cc",
+            ])
+            .current_dir(&files.0)
+            .env("SDL_VIDEODRIVER", "dummy")
+            .env("SDL_AUDIODRIVER", "dummy")
+            .env("CRT_BACKEND", "cpu")
+            .env("LODERUNNER_FRAME_TIMINGS", "timings.csv")
+            .output()
+            .unwrap()
+    };
+    success(run());
+    let original = fs::read_to_string(files.0.join("timings.csv")).unwrap();
+    assert!(
+        original
+            .starts_with("checkpoint,cycles,transition,audio_ms,graphics_ms,work_ms,interval_ms\n")
+    );
+    let frames: Vec<_> = original
+        .lines()
+        .skip(1)
+        .map(|line| line.split(',').collect::<Vec<_>>())
+        .collect();
+    assert!(frames.len() > 2);
+    assert!(frames.iter().any(|frame| frame[2] == "true"));
+    assert!(frames.iter().any(|frame| frame[2] == "false"));
+    assert!(frames[0][6].is_empty());
+    for frame in &frames {
+        let audio: f64 = frame[3].parse().unwrap();
+        let graphics: f64 = frame[4].parse().unwrap();
+        let work: f64 = frame[5].parse().unwrap();
+        assert!(work + 0.000002 >= audio + graphics);
+    }
+    let rejected = run();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("frame timings"));
+    assert_eq!(
+        original,
+        fs::read_to_string(files.0.join("timings.csv")).unwrap()
+    );
+}
+
+#[test]
 fn recording_replays_headlessly_and_with_display() {
     let files = Files::new("cli-recording");
     // Obsolete score files are ignored by live play as well as playback.

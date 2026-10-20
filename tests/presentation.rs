@@ -50,6 +50,34 @@ fn retained_crt_matches_fresh_output_across_scene_changes_layers_and_reload() {
     );
 }
 
+// Cell edges and HGR fetch edges do not coincide. Check retained output through
+// disconnected damage, erasure, the status strip, and both screen edges.
+#[test]
+fn cell_damage_spans_preserve_hgr_neighbors_and_untouched_rows() {
+    let mut scene = Scene::default();
+    let mut display = Display::default();
+    for row in 0..17 {
+        for column in 0..28 {
+            scene.tile(Layer::Foreground, (row + column) % 8, column, row);
+        }
+    }
+    let mut crt = CrtDisplay::new(280, 192).unwrap();
+    commit(&mut crt, &mut display, &mut scene);
+    for (x, y) in [(0, 0), (3, 10), (50, 55), (136, 55), (0, 176), (134, 181)] {
+        for erase in [false, true] {
+            if erase {
+                scene.erase(9, x, y);
+            } else {
+                scene.overlay(9, x, y);
+            }
+            commit(&mut crt, &mut display, &mut scene);
+            let mut fresh = CrtDisplay::new(280, 192).unwrap();
+            fresh.prepare(&scene, &display).unwrap();
+            assert_eq!(crt.pixels(), fresh.pixels(), "{x},{y}, erase={erase}");
+        }
+    }
+}
+
 #[test]
 fn resize_reconstructs_retained_light_and_centers_the_native_aspect() {
     assert_eq!(scaled_size(5), (1400, 960));
@@ -84,6 +112,51 @@ fn resize_reconstructs_retained_light_and_centers_the_native_aspect() {
     for row in crt.pixels().as_chunks::<{ 701 * 4 }>().0 {
         assert_eq!(&row[..4], &[0, 0, 0, 255]);
         assert_eq!(&row[row.len() - 4..], &[0, 0, 0, 255]);
+    }
+}
+
+#[test]
+#[ignore = "run through make test-render-sdl with the dummy SDL driver"]
+fn sdl_simple_retains_rgba_through_local_updates_and_exposure() {
+    let sdl = sdl2::init().unwrap();
+    let video = sdl.video().unwrap();
+    let window = video
+        .window("simple retention", 280, 192)
+        .hidden()
+        .build()
+        .unwrap();
+    let mut presentation =
+        Presentation::new(window, RenderMode::Simple, BackendPreference::Cpu).unwrap();
+    let mut scene = Scene::default();
+    let mut display = Display::default();
+    for step in 0..7 {
+        match step {
+            0 => scene.overlay(8, 50, 55),
+            1 => scene.overlay(11, 55, 55),
+            2 => scene.erase(8, 50, 55),
+            3 => scene.overlay(37, 136, 55),
+            4 => scene.tile(Layer::Foreground, 69, 10, 16),
+            5 => display.request_present(),
+            6 => {
+                scene.tile(Layer::Background, 3, 10, 5);
+                display.select(Layer::Background);
+            }
+            _ => unreachable!(),
+        }
+        presentation.paint(&mut scene, &mut display).unwrap();
+        let actual = presentation.capture_cpu().unwrap();
+        let mut fresh = Display::default();
+        fresh.select(display.selected());
+        fresh.prepare(&scene);
+        for (rgb, rgba) in fresh
+            .pixels()
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(actual.as_chunks::<4>().0)
+        {
+            assert_eq!(rgb, &rgba[..3], "step {step}");
+        }
     }
 }
 

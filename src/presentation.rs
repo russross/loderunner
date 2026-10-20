@@ -103,32 +103,54 @@ impl CrtDisplay {
         host: Option<&NativeDisplay>,
     ) -> Result<(), String> {
         let dirty = scene.dirty_cells(display.selected());
-        for y in 0..HEIGHT {
-            if !self.full_source
-                && !display.full_upload()
-                && !dirty[(y / 11) * 28..(y / 11 + 1) * 28].iter().any(|v| *v)
-            {
-                continue;
-            }
-            let ink = scene.row_bits(display.selected(), y);
-            let bytes = std::array::from_fn(|byte| {
-                let mut value = 0x80;
-                for bit in 0..7 {
-                    let x = byte * 7 + bit;
-                    value |= (((ink[x / 64] >> (x % 64)) & 1) as u8) << bit;
-                }
-                value
-            });
-            self.encoder
-                .encode_line(&AppleLine::hires(&bytes), &mut self.signal)
-                .map_err(|e| e.to_string())?;
-            let line = self.signal.as_line().map_err(|e| e.to_string())?;
-            if let Some(host) = host {
-                host.submit_line(&mut self.renderer, y as u32, line)
+        let full = self.full_source || display.full_upload();
+        // One span per cell row avoids fragmented submissions. Full refreshes
+        // initialize blanking and all rows; ordinary damage stays in HGR fetches.
+        for (cell_row, cells) in dirty.as_chunks::<28>().0.iter().enumerate() {
+            let fetches = if full {
+                0..40
             } else {
-                self.renderer.submit_line(y as u32, line)
+                let Some(first) = cells.iter().position(|v| *v) else {
+                    continue;
+                };
+                let last = cells.iter().rposition(|v| *v).expect("dirty cell row");
+                first * 10 / 7..((last + 1) * 10).div_ceil(7)
+            };
+            for y in cell_row * 11..((cell_row + 1) * 11).min(HEIGHT) {
+                let ink = scene.row_bits(display.selected(), y);
+                let bytes = std::array::from_fn(|byte| {
+                    let mut value = 0x80;
+                    for bit in 0..7 {
+                        let x = byte * 7 + bit;
+                        value |= (((ink[x / 64] >> (x % 64)) & 1) as u8) << bit;
+                    }
+                    value
+                });
+                if full {
+                    self.encoder
+                        .encode_line(&AppleLine::hires(&bytes), &mut self.signal)
+                        .map_err(|e| e.to_string())?;
+                    let line = self.signal.as_line().map_err(|e| e.to_string())?;
+                    if let Some(host) = host {
+                        host.submit_line(&mut self.renderer, y as u32, line)
+                    } else {
+                        self.renderer.submit_line(y as u32, line)
+                    }
+                    .map_err(|e| e.to_string())?;
+                } else {
+                    let samples = self
+                        .encoder
+                        .encode_hires_region(&bytes, fetches.clone(), &mut self.signal)
+                        .map_err(|e| e.to_string())?;
+                    let line = self.signal.as_line().map_err(|e| e.to_string())?;
+                    if let Some(host) = host {
+                        host.submit_line_region(&mut self.renderer, y as u32, line, samples)
+                    } else {
+                        self.renderer.submit_line_region(y as u32, line, samples)
+                    }
+                    .map_err(|e| e.to_string())?;
+                }
             }
-            .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -218,15 +240,27 @@ impl Presentation {
         if self.mode == RenderMode::Simple {
             let regions = display.prepare(scene);
             if !regions.is_empty() || display.needs_present() || self.host.needs_present() {
-                for (rgb, rgba) in display
-                    .pixels()
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .zip(self.simple.as_chunks_mut::<4>().0.iter_mut())
-                {
-                    rgba[..3].copy_from_slice(rgb);
-                    rgba[3] = 255;
+                // The retained RGBA picture needs conversion only where the
+                // digital decoder changed RGB, including its neighbor-color halo.
+                for region in &regions {
+                    for y in region.y() as usize..region.y() as usize + region.height() as usize {
+                        let first = y * WIDTH + region.x() as usize;
+                        let end = first + region.width() as usize;
+                        for (rgb, rgba) in display.pixels()[first * 3..end * 3]
+                            .as_chunks::<3>()
+                            .0
+                            .iter()
+                            .zip(
+                                self.simple[first * 4..end * 4]
+                                    .as_chunks_mut::<4>()
+                                    .0
+                                    .iter_mut(),
+                            )
+                        {
+                            rgba[..3].copy_from_slice(rgb);
+                            rgba[3] = 255;
+                        }
+                    }
                 }
                 self.host.present_rgba(
                     &self.simple,

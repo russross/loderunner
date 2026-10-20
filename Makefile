@@ -49,6 +49,13 @@ test-presentation: $(SYMBOLS) Cargo.lock
 smoke: $(SYMBOLS) Cargo.lock
 	$(CARGO) run --locked -p loderunner --example presentation_smoke
 
+.PHONY: performance
+TIMINGS ?= target/frame-timings.csv
+BACKEND ?= gpu
+RENDERER ?= crt
+performance: all
+	LODERUNNER_FRAME_TIMINGS="$(TIMINGS)" CRT_BACKEND="$(BACKEND)" target/release/loderunner --renderer $(RENDERER) --rounds 240 --input 0:cc --input 40:a0 --input 50:ca --input 80:d5 --input 110:cf --input 140:c9 --input 170:cb $(ARGS)
+
 # Preserve the deployed release executable and all user recordings.
 mostlyclean:
 	rm -rf target/debug target/release/deps target/release/build target/release/incremental target/release/.fingerprint target/release/examples

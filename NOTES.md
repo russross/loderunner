@@ -40,6 +40,8 @@ Speaker access toggles drive at a virtual cycle. PLAY_NOTE advances countdown ru
 
 Live audio integrates speaker drive over globally indexed sample windows, preserving fractional-cycle boundaries across batches. Pruning retains the last preceding edge so future samples start in the correct state. SDL output applies a DC-removing filter and gain. The game submits audio and graphics once per committed interval before sleeping. Host rendering, audio conversion, and file parsing do not add emulated cycles.
 
+The display paints its initial scene before starting audio and resets the host pacing origin when session execution begins, excluding device and lazy GPU initialization from the live timeline. Audio starts without a prefixed silent buffer. During paced waits the SDL host pumps native events at most five milliseconds apart, retaining queued input until the next interval's normal poll. Transition tunes retain their complete modeled duration and atomic trace interval while the window remains responsive to the operating system.
+
 Player execution
 ----------------
 

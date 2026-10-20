@@ -9,6 +9,7 @@ use sdl2::audio::AudioSpecDesired;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Mod};
 use std::cell::RefCell;
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowCommand {
@@ -65,7 +66,7 @@ fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
     }
 }
 
-fn display(session: Session) -> Result<(), String> {
+fn display(mut session: Session) -> Result<(), String> {
     let sdl = sdl2::init()?;
     let video = sdl.video()?;
     let (width, height) = scaled_size(5);
@@ -83,7 +84,7 @@ fn display(session: Session) -> Result<(), String> {
         BackendPreference::from_env()?,
     )?;
     let commands = RefCell::new(Vec::new());
-    let mut events = sdl.event_pump()?;
+    let events = RefCell::new(sdl.event_pump()?);
     let audio = sdl.audio()?;
     let desired = AudioSpecDesired {
         freq: Some(44100),
@@ -91,18 +92,20 @@ fn display(session: Session) -> Result<(), String> {
         samples: Some(1024),
     };
     let queue = audio.open_queue::<f32, _>(None, &desired)?;
-    queue.queue_audio(&vec![0.0; 1024])?;
-    queue.resume();
     let rate = queue.spec().freq as u32;
     let mut sample_frame = 0;
     let mut previous_input = -1.0;
     let mut previous_output = 0.0;
 
+    // Initialize the lazy GPU pipeline before starting the live audio timeline.
+    presentation.paint(&mut session.run.game.scene, &mut session.run.game.display)?;
+    queue.resume();
+
     // Window commands remain live during playback; gameplay input is selected by the session.
     session.execute(
         |game| {
             let mut delivery = None;
-            for event in events.poll_iter() {
+            for event in events.borrow_mut().poll_iter() {
                 match event {
                     Event::Window {
                         win_event:
@@ -172,7 +175,18 @@ fn display(session: Session) -> Result<(), String> {
             sample_frame = final_frame;
             game.speaker
                 .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));
-            presentation.paint(&mut game.scene, &mut game.display)
+            presentation.paint(&mut game.scene, &mut game.display)?;
+
+            // Transition tunes can span seconds. Pump native window events while
+            // waiting, retaining queued keys for the next normal input boundary.
+            while let Some(remaining) = game.clock.remaining() {
+                if remaining.is_zero() {
+                    break;
+                }
+                events.borrow_mut().pump_events();
+                std::thread::sleep(remaining.min(Duration::from_millis(5)));
+            }
+            Ok(())
         },
     )
 }

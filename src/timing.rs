@@ -54,13 +54,49 @@ impl Clock {
 
     // Absolute deadlines prevent host sleep overshoot from accumulating drift.
     // Headless execution commits the same intervals without sleeping.
-    pub fn checkpoint(&self) {
-        if self.paced {
+    pub fn start_pacing(&mut self) {
+        self.epoch =
+            Instant::now() - Duration::from_secs_f64(self.cycles as f64 / NTSC_CPU_HZ as f64);
+    }
+
+    pub fn remaining(&self) -> Option<Duration> {
+        self.paced.then(|| {
             let deadline =
                 self.epoch + Duration::from_secs_f64(self.cycles as f64 / NTSC_CPU_HZ as f64);
-            if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
-                std::thread::sleep(remaining);
-            }
+            deadline.saturating_duration_since(Instant::now())
+        })
+    }
+
+    pub fn checkpoint(&self) {
+        if let Some(remaining) = self.remaining() {
+            std::thread::sleep(remaining);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Clock, NTSC_CPU_HZ};
+    use std::time::Duration;
+
+    #[test]
+    fn starting_pacing_excludes_host_initialization_and_retains_virtual_time() {
+        let mut clock = Clock::new(true);
+        clock.epoch -= Duration::from_secs(10);
+        clock.cycles = NTSC_CPU_HZ * 3;
+        clock.start_pacing();
+        clock.cycles += NTSC_CPU_HZ;
+        let remaining = clock.remaining().unwrap();
+        assert!(remaining > Duration::from_millis(900));
+        assert!(remaining <= Duration::from_secs(1));
+        assert_eq!(clock.cycles, NTSC_CPU_HZ * 4);
+    }
+
+    #[test]
+    fn unpaced_execution_never_requests_a_host_wait() {
+        let mut clock = Clock::new(false);
+        clock.start_pacing();
+        clock.cycles = NTSC_CPU_HZ * 10;
+        assert_eq!(clock.remaining(), None);
     }
 }

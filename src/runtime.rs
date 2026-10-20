@@ -131,6 +131,7 @@ impl Session {
         };
 
         let mut round = 0;
+        self.run.game.clock.start_pacing();
         let result = (|| -> Result<(), String> {
             while self.end.is_none_or(|end| round < end) {
                 if worker.as_ref().is_some_and(|worker| worker.is_finished()) {

@@ -69,7 +69,6 @@ local function drain_signals()
             elseif kind == "trapped" then signals[#signals + 1] = {kind = "trapped", slot = slot}
             elseif kind == "landed" then signals[#signals + 1] = {kind = "landed"}
             elseif kind == "exit" then signals[#signals + 1] = {kind = "exit"}
-            elseif kind == "score" then signals[#signals + 1] = {kind = "high_score_inserted"}
             else error("unknown source observation " .. line) end
         end
     end
@@ -118,7 +117,6 @@ local function install_hooks()
     hook(config.anchors.player_hole_contact, "contact_cell 0 %d %d", "b@85,b@86")
     hook(at("HANDLE_TIMERS.reset_guard_gold_timer"), "contact_cell %d %d %d", "x,b@85,b@86")
     hook(at("ENABLE_NEXT_LEVEL_LADDERS"), "exit")
-    hook(at("RECORD_HI_SCORE_DATA_TO_DISK.write_here"), "score")
     for address, event in pairs(timing_hooks) do
         if not timing_installed[address] then
             cpu.debug:bpset(address, "1", 'printf "TME ' .. event .. ' %d",totalcycles;g')
@@ -183,7 +181,7 @@ continue_interval = function(command)
     polling_target = cycles() + 5000
     local condition = "totalcycles >= " .. string.format("%x", polling_target)
     for _, name in ipairs({"WAIT_FOR_KEY_WITH_CURSOR_PAGE_1.loop2", "WAIT_FOR_KEY_WITH_CURSOR_PAGE_1.loop3",
-        "WAIT_KEY_QUEUED", "RETURN_HANDLER.check_keyboard", "WAIT_FOR_KEY.loop2", "WAIT_FOR_KEY.loop3",
+        "WAIT_KEY_QUEUED", "WAIT_FOR_KEY.loop2", "WAIT_FOR_KEY.loop3",
         "SHOW_ANIM_LINE.check_for_keypress", "CHECK_FOR_BUTTON_DOWN.poll_keyboard"}) do poll(name, condition) end
     cpu.debug:go()
 end
@@ -222,11 +220,9 @@ local function stopped()
             stop("INIT_GAME_DATA.game_loop"); stop("INIT_GAME_DATA.died"); stop("INIT_GAME_DATA.level_cleared")
             stop("WAIT_FOR_KEY_WITH_CURSOR_PAGE_1"); stop("LOAD_LEVEL")
             stop("ESC_HANDLER"); stop("RETURN_HANDLER"); stop("SPINNING_GAME_OVER")
-            stop("INIT_GAME_DATA"); stop("INIT_GAME_DATA.play_game"); stop("LONG_DELAY")
+            stop("INIT_GAME_DATA"); stop("INIT_GAME_DATA.play_game")
             breakpoints[0x6a7d] = "pause_resume"; cpu.debug:bpset(0x6a7d, "1", "")
-            stop("RETURN_HANDLER.check_for_input")
-            stop("RECORD_HI_SCORE_DATA_TO_DISK.get_initial_from_player")
-            poll("RETURN_HANDLER.check_keyboard", "0")
+            stop("RECORD_HI_SCORE_DATA_TO_DISK")
             boot="done"; phase=config.wait_on_level_start and "Waiting" or "Playing"
             active=true
             if config.wait_on_level_start then sample(); return end
@@ -254,21 +250,18 @@ local function stopped()
         if phase == "Waiting" then phase="Playing"; skip_main=true; sample() else cpu.debug:go() end
     elseif name == "ESC_HANDLER" then
         if phase ~= "Paused" or #inputs > 0 then phase="Paused"; sample() else cpu.debug:go() end
-    elseif name == "pause_resume" or name == "RETURN_HANDLER.check_for_input" then
+    elseif name == "pause_resume" then
         phase="Playing"; sample()
-    elseif name == "RETURN_HANDLER" then
-        phase="HighScores"; poll("RETURN_HANDLER.check_keyboard"); cpu.debug:go()
-    elseif name == "RECORD_HI_SCORE_DATA_TO_DISK.get_initial_from_player" then
-        phase="Initials"; sample()
+    elseif name == "RETURN_HANDLER" or name == "RECORD_HI_SCORE_DATA_TO_DISK" then
+        -- Score menus lie outside level gameplay. Return through an existing RTS
+        -- without executing either menu or changing gameplay storage.
+        cpu.state.PC.value = at("RECORD_HI_SCORE_DATA_TO_DISK.end")
+        cpu.debug:go()
     elseif name == "SPINNING_GAME_OVER" then phase="GameOver"; sample()
-    elseif name == "LONG_DELAY" then
-        if phase == "Initials" then phase="GameOver"; sample() else cpu.debug:go() end
     elseif name == "INIT_GAME_DATA" then
         space:write_u8(0xa6, config.start+1); space:write_u8(0x96, config.start)
         signals[#signals+1] = {kind="new_game"}
         attempt=0; reloading=true; cpu.debug:go()
-    elseif name == "RETURN_HANDLER.check_keyboard" then
-        if phase == "HighScores" and not (latch & 0x80 ~= 0 and not observed_latch) then sample() else cpu.debug:go() end
     elseif name == "WAIT_FOR_KEY_WITH_CURSOR_PAGE_1.loop2" or name == "WAIT_FOR_KEY_WITH_CURSOR_PAGE_1.loop3"
         or name == "WAIT_KEY_QUEUED" or name == "WAIT_FOR_KEY.loop2" or name == "WAIT_FOR_KEY.loop3"
         or name == "SHOW_ANIM_LINE.check_for_keypress" or name == "CHECK_FOR_BUTTON_DOWN.poll_keyboard" then

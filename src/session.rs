@@ -1,20 +1,17 @@
 use crate::actors::Command;
 use crate::board::Level;
-use crate::devices::keyboard::{Control, LEFT_ARROW, RETURN, RIGHT_ARROW};
+use crate::devices::keyboard::Control;
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::score::Score;
 use crate::sound::Note;
 use crate::state::{Game, Progress};
-use crate::storage::{LevelRecord, original_high_scores, original_level};
-use lode_trace::{
-    FORMAT_VERSION, Header, HighScore, Input, Observer, Phase, Round, Snapshot, Trace,
-};
+use crate::storage::{LevelRecord, original_level};
+use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Round, Snapshot, Trace};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Configuration {
-    pub high_scores: Vec<HighScore>,
     pub levels: Vec<LevelRecord>,
     pub start: usize,
     pub wait_on_level_start: bool,
@@ -29,7 +26,6 @@ impl Configuration {
             .map(|number| original_level(number).map(LevelRecord))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            high_scores: original_high_scores(),
             levels,
             start: usize::from(level - 1),
             wait_on_level_start: true,
@@ -55,8 +51,6 @@ pub struct Run {
     last_start: u64,
     tracing: bool,
     last_inputs: Vec<Input>,
-    initials: Option<(usize, usize)>,
-    high_score_until: u64,
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
     timing_model: Model,
@@ -67,7 +61,6 @@ impl Run {
         let levels = configuration.decode_levels()?;
         let index = configuration.start;
         let mut game = Game::load_level(&levels[index], (index + 1) as u8, paced);
-        game.high_scores = configuration.high_scores.clone();
         if configuration.wait_on_level_start {
             game.session.phase = Phase::Waiting;
         }
@@ -90,8 +83,6 @@ impl Run {
             last_start: 0,
             tracing: true,
             last_inputs: Vec::new(),
-            initials: None,
-            high_score_until: 0,
             last_timing: None,
             last_model_cycles: None,
             timing_model: Model::calibrated(),
@@ -172,10 +163,6 @@ impl Run {
     fn advance_phase(&mut self, phase: Phase, journal: &mut Journal) -> Result<Vec<Input>, String> {
         if phase == Phase::Playing {
             let inputs = self.game.play_round(journal)?;
-            if self.game.session.phase == Phase::HighScores {
-                self.game.show_high_scores();
-                self.high_score_until = self.game.clock.cycles + 5_000_000;
-            }
             return Ok(inputs);
         }
         if matches!(phase, Phase::Died | Phase::LevelCleared) {
@@ -185,13 +172,6 @@ impl Run {
 
         let code = self.game.keyboard.observe();
         match (phase, code) {
-            (Phase::Initials, Some(code)) => self.enter_initial(code),
-            (Phase::HighScores, key)
-                if key.is_some() || self.game.clock.cycles >= self.high_score_until =>
-            {
-                self.game.restore_background();
-                self.game.session.phase = Phase::Playing;
-            }
             (Phase::GameOver, Some(_)) => {
                 self.level_index = self.configuration.start;
                 self.reload(true)?;
@@ -248,7 +228,6 @@ impl Run {
             self.game.play_sound_section();
             if self.game.session.lives == 0 {
                 self.game.session.phase = Phase::GameOver;
-                self.qualify_high_score();
                 return Ok(());
             }
         }
@@ -267,7 +246,6 @@ impl Run {
             self.game.score = Score::default();
             self.game.difficulty = 0;
             self.game.resurrection_col = 0;
-            self.game.eligible_for_score = true;
         } else {
             self.game.session.attempt += 1;
         }
@@ -279,55 +257,6 @@ impl Run {
         };
         self.game.put_status();
         Ok(())
-    }
-
-    fn qualify_high_score(&mut self) {
-        if !self.game.eligible_for_score || self.game.score.decimal() == 0 {
-            return;
-        }
-        let rank = (self.game.session.level, self.game.score.decimal());
-        let index = self
-            .game
-            .high_scores
-            .iter()
-            .position(|entry| rank > (entry.level, entry.score))
-            .unwrap_or(self.game.high_scores.len());
-        if index >= 10 {
-            return;
-        }
-        self.game.high_scores.insert(
-            index,
-            HighScore {
-                initials: [b' '; 3],
-                level: rank.0,
-                score: rank.1,
-            },
-        );
-        self.game.high_scores.truncate(10);
-        self.initials = Some((index, 0));
-        self.game.session.phase = Phase::Initials;
-        self.game.show_high_scores();
-    }
-
-    fn enter_initial(&mut self, code: u8) {
-        let Some((index, mut cursor)) = self.initials else {
-            return;
-        };
-        if code == RETURN {
-            self.initials = None;
-            self.game.session.phase = Phase::GameOver;
-            return;
-        }
-        if code == LEFT_ARROW {
-            cursor = cursor.saturating_sub(1);
-        } else if code == RIGHT_ARROW {
-            cursor = (cursor + 1).min(2);
-        } else if matches!(code & 0x7f, b'A'..=b'Z' | b'.' | b' ') {
-            self.game.high_scores[index].initials[cursor] = code & 0x7f;
-            cursor = (cursor + 1).min(2);
-        }
-        self.initials = Some((index, cursor));
-        self.game.show_high_scores();
     }
 
     pub fn trace(&self) -> Result<Trace, String> {

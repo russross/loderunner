@@ -18,7 +18,6 @@ fn capture_board(board: [u8; 256], inputs: &[Option<u8>]) -> Result<Trace, Strin
         Configuration {
             levels: vec![LevelRecord(board)],
             start: 0,
-            high_scores: vec![],
             wait_on_level_start: false,
         },
         inputs,

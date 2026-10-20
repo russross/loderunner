@@ -86,7 +86,6 @@ fn board(tiles: &[(usize, usize, Tile)]) -> LevelRecord {
 
 fn configuration(levels: Vec<LevelRecord>, waiting: bool) -> Configuration {
     Configuration {
-        high_scores: vec![],
         levels,
         start: 0,
         wait_on_level_start: waiting,
@@ -200,7 +199,7 @@ fn airborne_restarts_preserve_sound_state_without_reapplying_profile() {
 
 #[test]
 #[ignore = "requires MAME 0.276 and Apple IIe enhanced ROMs"]
-fn waiting_pause_and_high_score_screen_match_machine() {
+fn waiting_pause_and_return_match_machine() {
     let levels = vec![board(&[(5, 15, Tile::Player), (20, 15, Tile::Guard)])];
     for (waiting, keys) in [
         (true, vec![None, None, Some(0xa0), Some(0xcc), None]),
@@ -217,7 +216,7 @@ fn waiting_pause_and_high_score_screen_match_machine() {
                 Some(0xcc),
             ],
         ),
-        (false, vec![Some(0x8d), None, Some(0xa0), None]),
+        (false, vec![Some(0xcc), Some(0x8d), None, Some(0xa0)]),
     ] {
         let trace = capture(configuration(levels.clone(), waiting), &keys).unwrap();
         let report = validate(&trace, &options()).unwrap();
@@ -229,7 +228,7 @@ fn waiting_pause_and_high_score_screen_match_machine() {
 
 #[test]
 #[ignore = "requires MAME 0.276 and Apple IIe enhanced ROMs"]
-fn death_restart_completion_and_initials_match_machine() {
+fn death_restart_completion_and_scored_game_over_match_machine() {
     let config = configuration(vec![LevelRecord(original_level(1).unwrap())], false);
     let mut keys = vec![None; 12];
     keys[0] = Some(0xca);
@@ -291,20 +290,8 @@ fn death_restart_completion_and_initials_match_machine() {
     );
     let mut keys = vec![Some(0xcc), None, None, None, None, Some(0xa0)];
     keys.extend(deaths);
-    keys.extend([
-        Some(0xc1),
-        Some(0xc2),
-        Some(0xc3),
-        Some(0xc4),
-        Some(0x88),
-        Some(0xa0),
-        Some(0x95),
-        Some(0xae),
-        Some(0xb1),
-        Some(0x8d),
-    ]);
     let trace = capture(config, &keys).unwrap();
-    assert_eq!(trace.final_state.high_scores[0].initials, *b"A .");
+    assert_eq!(trace.final_state.session.phase, lode_trace::Phase::GameOver);
     validate(&trace, &options()).unwrap();
 }
 

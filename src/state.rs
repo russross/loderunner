@@ -9,7 +9,7 @@ use crate::score::Score;
 use crate::sound::Sound;
 use crate::timing::Clock;
 use lode_trace::{
-    Action, Actor, ActorId, Cell, Facing, HighScore, Hole, Life, Phase, Session, Snapshot, Tile,
+    Action, Actor, ActorId, Cell, Facing, Hole, Life, Phase, Session, Snapshot, Tile,
 };
 
 pub struct Game {
@@ -27,8 +27,6 @@ pub struct Game {
     pub resurrection_col: u8,
     pub difficulty: u8,
     pub skip_level: bool,
-    pub high_scores: Vec<HighScore>,
-    pub eligible_for_score: bool,
     pub display: Display,
     pub scene: Scene,
     pub keyboard: Keyboard,
@@ -77,8 +75,6 @@ impl Game {
             resurrection_col: 0,
             difficulty: 0,
             skip_level: false,
-            high_scores: Vec::new(),
-            eligible_for_score: true,
             display: Display::default(),
             scene: Scene::default(),
             keyboard: Keyboard::default(),
@@ -222,7 +218,6 @@ impl Game {
         let mut hidden_ladders = self.hidden_ladders.clone();
         hidden_ladders.sort();
         Snapshot {
-            high_scores: self.high_scores.clone(),
             session: Session {
                 level: self.session.level,
                 attempt: self.session.attempt,

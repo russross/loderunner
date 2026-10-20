@@ -100,23 +100,6 @@ fn generate() -> Result<(), String> {
             .map_err(|error| format!("level {}: {error}", index + 1))?;
         writeln!(output, "{record:?},").expect("writing generated string");
     }
-    output.push_str("];\npub const HIGH_SCORES: [HighScore; 10] = [\n");
-
-    // Decimal scores and plain initials are runtime data. Packed BCD and the
-    // high-bit character convention end at this reference conversion boundary.
-    let scores = sector(&tracks[9], 15)?;
-    for row in scores[..80].as_chunks::<8>().0 {
-        let initials = [row[0] & 0x7f, row[1] & 0x7f, row[2] & 0x7f];
-        let level = row[3];
-        let score = row[4..8].iter().fold(0_u32, |score, pair| {
-            score * 100 + u32::from(pair >> 4) * 10 + u32::from(pair & 15)
-        });
-        writeln!(
-            output,
-            "HighScore {{ initials: {initials:?}, level: {level}, score: {score} }},"
-        )
-        .expect("writing generated string");
-    }
     output.push_str("];\n");
     let directory = PathBuf::from(env::var_os("OUT_DIR").ok_or("Cargo did not supply OUT_DIR")?);
     fs::write(directory.join("assets.rs"), output).map_err(|error| error.to_string())

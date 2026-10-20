@@ -10,7 +10,6 @@ fn configuration(tiles: &[(usize, usize, Tile)]) -> Configuration {
         bytes[index / 2] |= (tile as u8) << ((index % 2) * 4);
     }
     Configuration {
-        high_scores: vec![],
         levels: vec![LevelRecord(bytes)],
         start: 0,
         wait_on_level_start: false,

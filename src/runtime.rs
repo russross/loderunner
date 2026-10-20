@@ -41,7 +41,6 @@ pub struct Session {
     playback: Option<Recording>,
     expected: Option<Trace>,
     recording: Option<Recording>,
-    scores: Option<String>,
     end: Option<usize>,
 }
 
@@ -60,31 +59,18 @@ impl Session {
             paths.push(path);
         }
 
-        // Stored sessions never consult or update the user's current scores.
-        let (configuration, playback, expected, scores) = match &arguments.playback {
-            Playback::Live => {
-                let mut configuration = Configuration::original(arguments.level)?;
-                match fs::read_to_string("highscores.json") {
-                    Ok(text) => {
-                        configuration.high_scores = serde_json::from_str(&text)
-                            .map_err(|error| format!("highscores.json: {error}"))?
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-                    Err(error) => return Err(format!("highscores.json: {error}")),
-                }
-                let scores = serde_json::to_string_pretty(&configuration.high_scores)
-                    .map_err(|error| error.to_string())?;
-                (configuration, None, None, Some(scores))
-            }
+        // Playback carries its own level configuration and observed inputs.
+        let (configuration, playback, expected) = match &arguments.playback {
+            Playback::Live => (Configuration::original(arguments.level)?, None, None),
             Playback::Recording(path) => {
                 let playback = Recording::from_json(&read(path)?)?;
-                (playback.configuration.clone(), Some(playback), None, None)
+                (playback.configuration.clone(), Some(playback), None)
             }
             Playback::Trace(path) => {
                 let trace = Trace::from_json(&read(path)?).map_err(|error| error.to_string())?;
                 let configuration = serde_json::from_str(&trace.header.configuration)
                     .map_err(|error| error.to_string())?;
-                (configuration, None, Some(trace), None)
+                (configuration, None, Some(trace))
             }
         };
         let mut run = Run::new(configuration.clone(), arguments.display && arguments.paced)?;
@@ -114,7 +100,6 @@ impl Session {
             playback,
             expected,
             recording,
-            scores,
             end,
         })
     }
@@ -257,13 +242,6 @@ impl Session {
                 println!("Verified {round} rounds");
             } else {
                 println!("Stopped after {round} rounds; verification incomplete");
-            }
-        }
-        if let Some(initial_scores) = &self.scores {
-            let scores = serde_json::to_string_pretty(&self.run.game.high_scores)
-                .map_err(|error| error.to_string())?;
-            if scores != *initial_scores {
-                write(Path::new("highscores.json"), &scores)?;
             }
         }
         Ok(())

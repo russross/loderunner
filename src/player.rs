@@ -2,7 +2,7 @@ use crate::actors::{Command, DigSide, Digging, Direction};
 use crate::animation::PlayerFrame;
 use crate::board::Board;
 use crate::collision::Layer;
-use crate::devices::keyboard::Control;
+use crate::devices::keyboard::{Control, RETURN};
 use crate::event_timing::TimingEvent;
 use crate::graphics::{DIG_BRICKS, LEFT_DIG_DEBRIS, RIGHT_DIG_DEBRIS, Sprite};
 use crate::sound::{DIG_NOTES, Note, play_note};
@@ -106,13 +106,11 @@ impl Game {
             Some(Control::SkipLevel) => {
                 self.session.lives = self.session.lives.wrapping_add(1);
                 self.session.level = self.session.level.wrapping_add(1);
-                self.eligible_for_score = false;
                 self.skip_level = true;
                 self.player.alive = false;
             }
             Some(Control::ExtraLife) => {
                 self.session.lives = self.session.lives.saturating_add(1);
-                self.eligible_for_score = false;
             }
             Some(Control::ToggleSound) => self.sound.enabled = !self.sound.enabled,
             Some(Control::Faster) => {
@@ -122,10 +120,10 @@ impl Game {
                 self.sound.frame_period = (self.sound.frame_period + 1).min(15)
             }
             Some(Control::Keyboard) => (),
-            Some(Control::HighScores) => self.session.phase = Phase::HighScores,
             Some(Control::Joystick) => {
                 return Err("joystick controls require a controller device".into());
             }
+            None if code == RETURN => (),
             None => self.player.command = Command::from_key(code),
         }
         Ok(vec![Input {

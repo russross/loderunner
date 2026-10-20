@@ -13,7 +13,6 @@ pub const CONTROLS: &str = "Game
   Z / U              Dig left
   X / O              Dig right
   Escape             Pause / resume
-  Return             Show high scores
 
 Game controls
   Ctrl+A             Sacrifice a life
@@ -26,7 +25,7 @@ Window
   Tab                Switch crt / simple output
   Ctrl+Q             Quit and finish recording
 
-Other printable keys start play or enter high-score initials.
+Other printable keys start play.
 Use --help for recording, replay, validation, and startup options.";
 
 #[derive(Default)]
@@ -176,7 +175,7 @@ impl Arguments {
             }
         }
 
-        // Playback embeds its starting configuration, including the high score table.
+        // Playback embeds its starting level configuration.
         let live = matches!(result.playback, Playback::Live);
         if !live && (level || !result.inputs.is_empty()) {
             return Err("playback cannot override --level or --input".into());

@@ -1,8 +1,8 @@
 //! Apple II observations decoded into the same object model as native traces.
 
 use crate::{
-    Action, Actor, ActorId, Cell, Facing, HighScore, Hole, HolePhase, Input, Life, Motion,
-    Occurrence, Phase, Session, Snapshot, Subject, Tile, TraceError,
+    Action, Actor, ActorId, Cell, Facing, Hole, HolePhase, Input, Life, Motion, Occurrence, Phase,
+    Session, Snapshot, Subject, Tile, TraceError,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -18,7 +18,6 @@ pub enum Signal {
     Landed,
     Trapped { slot: u8 },
     Exit,
-    HighScoreInserted,
     NewGame,
 }
 
@@ -46,24 +45,21 @@ pub struct Apple2Observer {
     open: BTreeSet<Cell>,
     attempt: u32,
     exit: bool,
-    score_rows: usize,
 }
 
-impl Apple2Observer {
-    pub fn new(score_rows: usize) -> Result<Self, TraceError> {
-        if score_rows > 10 {
-            return Err(TraceError("too many initial high scores".into()));
-        }
-        Ok(Self {
+impl Default for Apple2Observer {
+    fn default() -> Self {
+        Self {
             motions: [Motion::Standing; 6],
             generations: [0; 448],
             open: BTreeSet::new(),
             attempt: 0,
             exit: false,
-            score_rows,
-        })
+        }
     }
+}
 
+impl Apple2Observer {
     pub fn observe(&mut self, sample: &Sample) -> Result<Observation, TraceError> {
         let memory = decode_memory(&sample.memory)?;
         if sample.attempt != self.attempt {
@@ -116,7 +112,6 @@ impl Apple2Observer {
                     occurrences.push((Subject::Actor(ActorId::Guard(*slot)), Occurrence::Trapped));
                 }
                 Signal::Exit => self.exit = true,
-                Signal::HighScoreInserted => self.score_rows = (self.score_rows + 1).min(10),
                 Signal::NewGame => {
                     self.motions.fill(Motion::Standing);
                     self.generations.fill(0);
@@ -217,16 +212,6 @@ impl Apple2Observer {
             }
         }
 
-        let high_scores = (0..self.score_rows)
-            .map(|row| {
-                let p = 0x1f00 + row * 8;
-                Ok(HighScore {
-                    initials: [memory[p] & 0x7f, memory[p + 1] & 0x7f, memory[p + 2] & 0x7f],
-                    level: memory[p + 3],
-                    score: decimal(memory[p + 4..p + 8].iter().copied())?,
-                })
-            })
-            .collect::<Result<Vec<_>, TraceError>>()?;
         let mut snapshot = Snapshot {
             session: Session {
                 level: memory[0xa6],
@@ -241,7 +226,6 @@ impl Apple2Observer {
             background: map(&memory[0xa00..0xbc0])?,
             hidden_ladders,
             holes,
-            high_scores,
         };
         snapshot.canonicalize()?;
         Ok(Observation {

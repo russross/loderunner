@@ -28,7 +28,6 @@ fn initial() -> Snapshot {
         background: vec![Tile::Empty; 448],
         hidden_ladders: vec![],
         holes: vec![],
-        high_scores: vec![],
     }
 }
 

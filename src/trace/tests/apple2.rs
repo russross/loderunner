@@ -44,8 +44,7 @@ fn packed_storage_and_object_flags_decode_independently() {
     bytes[0xc79] = 3;
     bytes[0xc81] = 1;
     bytes[0xc91] = 0xff;
-    bytes[0x1f00..0x1f08].copy_from_slice(&[0xc1, 0xc2, 0xc3, 9, 0, 0x12, 0x34, 0x56]);
-    let mut decoder = Apple2Observer::new(1).unwrap();
+    let mut decoder = Apple2Observer::default();
     let observed = decoder
         .observe(&sample(
             &bytes,
@@ -57,8 +56,6 @@ fn packed_storage_and_object_flags_decode_independently() {
         ))
         .unwrap();
     assert_eq!(observed.snapshot.session.score, 123456);
-    assert_eq!(observed.snapshot.high_scores[0].score, 123456);
-    assert_eq!(observed.snapshot.high_scores[0].initials, *b"ABC");
     let guard = &observed.snapshot.actors[1];
     assert_eq!(guard.facing, Facing::Left);
     assert!(guard.carrying_gold);
@@ -73,7 +70,7 @@ fn hole_generation_and_motion_reset_follow_attempt_boundaries() {
     bytes[0xca0] = 4;
     bytes[0xcc0] = 15;
     bytes[0xce0] = 180;
-    let mut decoder = Apple2Observer::new(0).unwrap();
+    let mut decoder = Apple2Observer::default();
     let first = decoder
         .observe(&sample(
             &bytes,
@@ -124,7 +121,7 @@ fn hole_generation_and_motion_reset_follow_attempt_boundaries() {
 
 #[test]
 fn transient_occurrences_survive_identical_snapshots() {
-    let mut decoder = Apple2Observer::new(0).unwrap();
+    let mut decoder = Apple2Observer::default();
     let bytes = memory();
     let initial = decoder
         .observe(&sample(&bytes, vec![], 0))
@@ -158,7 +155,7 @@ fn transient_occurrences_survive_identical_snapshots() {
 
 #[test]
 fn malformed_memory_bcd_and_signal_domains_are_rejected() {
-    let mut decoder = Apple2Observer::new(0).unwrap();
+    let mut decoder = Apple2Observer::default();
     let mut invalid = sample(&memory(), vec![], 0);
     invalid.memory.pop();
     assert!(decoder.observe(&invalid).is_err());

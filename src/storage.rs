@@ -1,6 +1,6 @@
-use crate::assets::{HIGH_SCORES, LEVEL_RECORDS};
+use crate::assets::LEVEL_RECORDS;
 use crate::board::Level;
-use lode_trace::{HighScore, Tile};
+use lode_trace::Tile;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,10 +33,6 @@ pub fn original_level(number: u8) -> Result<[u8; 256], String> {
         return Err("level must be between 1 and 150".into());
     }
     Ok(LEVEL_RECORDS[usize::from(number - 1)])
-}
-
-pub fn original_high_scores() -> Vec<HighScore> {
-    HIGH_SCORES.to_vec()
 }
 
 // Disk records contain two cells per byte, low nibble first. Bytes 224 through

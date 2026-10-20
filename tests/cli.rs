@@ -40,6 +40,8 @@ fn success(output: Output) {
 #[test]
 fn recording_replays_headlessly_and_with_display() {
     let files = Files::new("cli-recording");
+    // Obsolete score files are ignored by live play as well as playback.
+    fs::write(files.0.join("highscores.json"), "invalid scores").unwrap();
     success(command(
         &files,
         &[
@@ -58,8 +60,7 @@ fn recording_replays_headlessly_and_with_display() {
     let recording = Recording::from_json(&original).unwrap();
     assert_eq!(recording.rounds, 24);
     assert!(!original.contains("final_state"));
-    // Playback uses its embedded table, even when the local table is invalid.
-    fs::write(files.0.join("highscores.json"), "invalid scores").unwrap();
+    assert!(!original.contains("high_scores"));
     success(command(
         &files,
         &[

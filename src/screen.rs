@@ -41,37 +41,4 @@ impl Game {
             );
         }
     }
-
-    // High scores occupy the background layer. Closing the table rebuilds that
-    // layer from logical terrain while leaving the foreground actors intact.
-    pub fn show_high_scores(&mut self) {
-        self.scene.clear_background();
-        self.put_text(Layer::Background, 4, 0, "LODE RUNNER HIGH SCORES");
-        self.put_text(Layer::Background, 4, 3, "INITIALS LEVEL  SCORE");
-        self.put_text(Layer::Background, 4, 4, "-------- ----- --------");
-        for index in 0..self.high_scores.len() {
-            let entry = &self.high_scores[index];
-            let initials = String::from_utf8_lossy(&entry.initials);
-            let text = format!(
-                "{:>2}.    {}    {:03}  {:08}",
-                index + 1,
-                initials,
-                entry.level,
-                entry.score
-            );
-            self.put_text(Layer::Background, 0, 5 + index as u8, &text);
-        }
-        self.display.select(Layer::Background);
-    }
-
-    pub fn restore_background(&mut self) {
-        self.scene.clear_background();
-        for row in (0..16).rev() {
-            for col in (0..28).rev() {
-                let tile = self.board.terrain[usize::from(row) * 28 + usize::from(col)];
-                self.paint_tile(Layer::Background, Sprite::tile(tile), col, row);
-            }
-        }
-        self.display.select(Layer::Foreground);
-    }
 }

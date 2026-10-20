@@ -13,7 +13,6 @@ fn record(tiles: &[(usize, usize, Tile)]) -> LevelRecord {
 
 fn configuration(levels: Vec<LevelRecord>) -> Configuration {
     Configuration {
-        high_scores: vec![],
         levels,
         start: 0,
         wait_on_level_start: false,
@@ -172,49 +171,36 @@ fn valid_but_wrong_gameplay_and_timing_traces_fail_reexecution() {
 }
 
 #[test]
-fn high_score_qualification_and_initials_round_trip() {
+fn scored_game_over_restarts_without_initials() {
     let config = configuration(vec![record(&[(5, 15, Tile::Player), (6, 15, Tile::Gold)])]);
     let mut inputs = vec![Some(0xcc), None, None, None, None, Some(0xa0)];
     for _ in 0..5 {
         inputs.extend([Some(0x81), None]);
     }
-    inputs.extend([Some(0xc1), Some(0xc2), Some(0xc3), Some(0x8d)]);
-    let trace = capture(config, &inputs).unwrap();
+    let trace = capture(config.clone(), &inputs).unwrap();
     assert_eq!(trace.final_state.session.phase, Phase::GameOver);
-    assert_eq!(trace.final_state.high_scores[0].initials, *b"ABC");
-    assert_eq!(trace.final_state.high_scores[0].score, 250);
+    assert_eq!(trace.final_state.session.score, 250);
     assert_eq!(replay(&trace).unwrap(), trace);
+    inputs.push(Some(0xc1));
+    let restarted = capture(config, &inputs).unwrap();
+    assert_eq!(restarted.final_state.session.phase, Phase::Playing);
+    assert_eq!(restarted.final_state.session.score, 0);
+    assert_eq!(restarted.final_state.session.lives, 5);
 }
 
 #[test]
-fn initials_retain_last_cursor_slot_allow_space_and_ignore_digits() {
-    let config = configuration(vec![record(&[(5, 15, Tile::Player), (6, 15, Tile::Gold)])]);
-    let mut keys = vec![Some(0xcc), None, None, None, None, Some(0xa0)];
-    keys.extend([Some(0x92), None]);
-    keys.extend([
-        Some(0xc1),
-        Some(0xc2),
-        Some(0xc3),
-        Some(0xc4),
-        Some(0x88),
-        Some(0xa0),
-        Some(0x95),
-        Some(0xae),
-        Some(0xb1),
-        Some(0x8d),
-    ]);
-    let trace = capture(config, &keys).unwrap();
-    assert_eq!(trace.final_state.high_scores[0].initials, *b"A .");
-    assert_eq!(replay(&trace).unwrap(), trace);
-}
-
-#[test]
-fn high_score_screen_return_preserves_gameplay_state() {
+fn return_keeps_playing_without_opening_a_menu() {
     let config = configuration(vec![record(&[
         (5, 15, Tile::Player),
         (20, 15, Tile::Guard),
     ])]);
-    let trace = capture(config, &[Some(0x8d), None, Some(0xa0), None]).unwrap();
+    let keys = [Some(0xcc), Some(0x8d), None, Some(0xa0)];
+    let trace = capture(config.clone(), &keys).unwrap();
+    let uninterrupted = capture(config, &[Some(0xcc), None, None, Some(0xa0)]).unwrap();
+    assert_eq!(trace.final_state, uninterrupted.final_state);
+    assert!(trace.rounds.iter().all(|round| round.changes.iter().all(|change| {
+        !matches!(change, lode_trace::Change::Session { after, .. } if after.phase != Phase::Playing)
+    })));
     assert_eq!(replay(&trace).unwrap(), trace);
     assert_eq!(trace.final_state.session.phase, Phase::Playing);
 }

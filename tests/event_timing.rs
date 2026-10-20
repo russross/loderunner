@@ -11,7 +11,6 @@ fn run(tiles: &[(usize, usize, Tile)]) -> Run {
     }
     Run::new(
         Configuration {
-            high_scores: vec![],
             levels: vec![LevelRecord(bytes)],
             start: 0,
             wait_on_level_start: false,

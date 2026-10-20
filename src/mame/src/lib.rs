@@ -1,7 +1,7 @@
 //! Input-only execution against the selected Apple II machine baseline.
 
 use lode_trace::apple2::{Apple2Observer, Sample};
-use lode_trace::{Change, HighScore, Observer, Phase, Round, Snapshot, Trace};
+use lode_trace::{Change, Observer, Phase, Round, Snapshot, Trace};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -19,7 +19,6 @@ pub struct LevelRecord(pub Vec<u8>);
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Configuration {
-    pub high_scores: Vec<HighScore>,
     pub levels: Vec<LevelRecord>,
     pub start: usize,
     pub wait_on_level_start: bool,
@@ -112,7 +111,7 @@ pub enum Difference {
     },
 }
 
-// Level and score files are configuration inputs. Expected state transitions are
+// Level files are configuration inputs. Expected state transitions are
 // never copied into MAME RAM or used to decide the machine's execution path.
 fn prepare_disk(work: &Path, configuration: &Configuration) -> Result<(), String> {
     if configuration.levels.is_empty()
@@ -122,9 +121,8 @@ fn prepare_disk(work: &Path, configuration: &Configuration) -> Result<(), String
             .levels
             .iter()
             .any(|level| level.0.len() != 256)
-        || configuration.high_scores.len() > 10
     {
-        return Err("unsupported initial level/score configuration".into());
+        return Err("unsupported initial level configuration".into());
     }
     let output = Command::new("python3").args(["-c",
         "import hashlib,sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); b=z.read('Lode Runner (4am crack)/Lode Runner (4am crack).dsk'); assert hashlib.sha256(b).hexdigest()=='71412e9b4619291a38abc3ad60e032fcc8fba12775798f8d84aeacd108aacdf6'; sys.stdout.buffer.write(b)"])
@@ -140,26 +138,6 @@ fn prepare_disk(work: &Path, configuration: &Configuration) -> Result<(), String
         disk[first..first + 256].fill(0);
         if let Some(level) = configuration.levels.get(number) {
             disk[first..first + 256].copy_from_slice(&level.0);
-        }
-    }
-    let score_sector = (12 * 16 + 15) * 256;
-    // Score rows use high-bit initials and most-significant BCD pairs first.
-    // Preserve all sector bytes beyond the ten rows, including the disk marker.
-    for row in 0..10 {
-        let first = score_sector + row * 8;
-        disk[first..first + 3].fill(0xa0);
-        disk[first + 3..first + 8].fill(0);
-        if let Some(score) = configuration.high_scores.get(row) {
-            for i in 0..3 {
-                disk[first + i] = score.initials[i] | 0x80;
-            }
-            disk[first + 3] = score.level;
-            let mut value = score.score;
-            for i in (4..8).rev() {
-                let pair = value % 100;
-                disk[first + i] = (((pair / 10) << 4) | (pair % 10)) as u8;
-                value /= 100;
-            }
         }
     }
     fs::write(work.join("disk.dsk"), disk).map_err(|error| error.to_string())
@@ -498,8 +476,7 @@ pub fn validate_stream(
         expected.to_json().map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    let mut decoder =
-        Apple2Observer::new(configuration.high_scores.len()).map_err(|error| error.to_string())?;
+    let mut decoder = Apple2Observer::default();
     let initial = machine.sample(0)?;
     let observed = decoder
         .observe(&initial)

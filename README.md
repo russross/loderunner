@@ -6,6 +6,8 @@ Lode Runner
 
 The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 development libraries, and pkg-config are required. The sibling `../crt` crate supplies the default NTSC/CRT pipeline; keep it checked out beside this project. The game in `src/` uses native game state, composed sprites, and event timing. `src/trace/` defines gameplay observations; `src/mame/` validates them against the original Apple II program. Reference assets and analysis remain in `sources/`.
 
+Faithful emulation covers core level gameplay: from the start of active play through the committed death or level-completion boundary. This includes movement, digging, guards, gold, holes, exits, collisions, in-level scoring, sound, and gameplay timing. Level selection, ready screens, pause, death/completion presentation and bonuses, reloads, game-over restart, and host controls are application behavior outside that fidelity guarantee. High score tracking and initials entry are absent.
+
 
 Rendering and window
 --------------------
@@ -47,7 +49,7 @@ Input recordings contain initial configuration, consumed keys indexed by interva
 
     make run ARGS='--headless --rounds 120 --input 0:cc --record run.input'
 
-Playback uses its embedded level sectors and initial high scores. Live play loads `highscores.json` when present and saves changed scores after successful completion. Playback never reads or writes that file.
+Playback uses its embedded level sectors. The game neither reads nor writes high score files. Traces use format version 3; version 2 traces are unsupported.
 
 
 MAME options
@@ -65,7 +67,7 @@ Controls
 
 *   Arrows or I/J/K/L move. Space stops; releasing a key retains the movement command.
 *   Z/U digs left; X/O digs right.
-*   Escape pauses/resumes; Return shows high scores.
+*   Escape pauses/resumes.
 *   Ctrl+A sacrifices; Ctrl+R ends the game; Ctrl+S mutes; Ctrl+Left/Right changes speed.
 *   Ctrl+Q quits and finishes recording.
 
@@ -81,4 +83,4 @@ Development
 
 Portable tests cover all 150 boards, gameplay transitions, capture/reexecution, input recordings, and CLI behavior. `make mame-validation` runs the external machine suite; ordinary tests leave it ignored. `make mame-poc` runs the separate debugger capability probes. `make timing-fit TIMING_MEASUREMENTS=FILE` refits the model from retained measurements.
 
-Make drives incremental Cargo builds. `make mostlyclean` preserves the release executable; `make clean` removes build outputs too. Neither removes recordings, high scores, or reference assets. Provenance and licensing remain in `sources/lode_runner_reveng/`.
+Make drives incremental Cargo builds. `make mostlyclean` preserves the release executable; `make clean` removes build outputs too. Neither removes recordings or reference assets. Provenance and licensing remain in `sources/lode_runner_reveng/`.

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Cell {
@@ -132,15 +132,6 @@ pub enum Phase {
     Died,
     LevelCleared,
     GameOver,
-    HighScores,
-    Initials,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HighScore {
-    pub initials: [u8; 3],
-    pub level: u8,
-    pub score: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,7 +152,6 @@ pub struct Snapshot {
     pub background: Vec<Tile>,
     pub hidden_ladders: Vec<Cell>,
     pub holes: Vec<Hole>,
-    pub high_scores: Vec<HighScore>,
 }
 
 impl Snapshot {
@@ -173,17 +163,6 @@ impl Snapshot {
     }
 
     pub fn validate(&self) -> Result<(), TraceError> {
-        if self.high_scores.len() > 10
-            || self.high_scores.iter().any(|entry| {
-                entry.score >= 100_000_000
-                    || entry
-                        .initials
-                        .iter()
-                        .any(|code| !matches!(*code, b'A'..=b'Z' | b'0'..=b'9' | b'.' | b' '))
-            })
-        {
-            return Err(TraceError("invalid high-score table".into()));
-        }
         if self.active.len() != 448 || self.background.len() != 448 {
             return Err(TraceError(
                 "snapshot maps must each contain 448 tiles".into(),
@@ -290,10 +269,6 @@ pub struct Episode {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Change {
-    HighScores {
-        before: Vec<HighScore>,
-        after: Vec<HighScore>,
-    },
     Session {
         before: Session,
         after: Session,
@@ -403,12 +378,6 @@ fn differences(before: &Snapshot, after: &Snapshot) -> Vec<Change> {
         changes.push(Change::Holes {
             before: before.holes.clone(),
             after: after.holes.clone(),
-        });
-    }
-    if before.high_scores != after.high_scores {
-        changes.push(Change::HighScores {
-            before: before.high_scores.clone(),
-            after: after.high_scores.clone(),
         });
     }
     changes
@@ -544,7 +513,6 @@ fn replace<T: Clone + PartialEq>(value: &mut T, before: &T, after: &T) -> Result
 
 fn apply_change(state: &mut Snapshot, change: &Change) -> Result<(), TraceError> {
     match change {
-        Change::HighScores { before, after } => replace(&mut state.high_scores, before, after),
         Change::Session { before, after } => replace(&mut state.session, before, after),
         Change::Actor { id, before, after } => {
             let found = state.actors.iter().position(|actor| actor.id == *id);

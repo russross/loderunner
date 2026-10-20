@@ -49,7 +49,7 @@ test-presentation: $(SYMBOLS) Cargo.lock
 smoke: $(SYMBOLS) Cargo.lock
 	$(CARGO) run --locked -p loderunner --example presentation_smoke
 
-# Preserve the deployed release executable and all user recordings and scores.
+# Preserve the deployed release executable and all user recordings.
 mostlyclean:
 	rm -rf target/debug target/release/deps target/release/build target/release/incremental target/release/.fingerprint target/release/examples
 clean: mostlyclean

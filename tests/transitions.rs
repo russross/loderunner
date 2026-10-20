@@ -18,7 +18,7 @@ fn level(col: usize, row: usize) -> LevelRecord {
 }
 
 #[test]
-fn startup_and_ready_waits_leave_no_timing_or_input_in_trace() {
+fn ready_waits_are_untraced_and_the_first_key_moves_and_is_recorded() {
     let mut run = Run::new(
         Configuration {
             levels: vec![level(5, 15)],
@@ -42,9 +42,63 @@ fn startup_and_ready_waits_leave_no_timing_or_input_in_trace() {
     assert_eq!(run.trace().unwrap(), initial);
     run.step(Some(0xcc)).unwrap();
     assert_eq!(run.game.session.phase, Phase::Playing);
-    assert_eq!(run.trace().unwrap(), initial);
-    assert!(run.last_inputs().is_empty());
+    assert_eq!(run.game.player.position.x(), 3);
+    assert_eq!(run.last_inputs()[0].key, 0xcc);
+    assert_eq!(run.trace().unwrap().rounds.len(), 1);
     run.step(Some(0xca)).unwrap();
+    assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
+}
+
+#[test]
+fn starting_commands_match_gameplay_with_an_automatically_dismissed_ready_screen() {
+    let mut board = level(5, 14);
+    let index = 15 * 28 + 6;
+    board.0[index / 2] |= (Tile::Brick as u8) << ((index % 2) * 4);
+    let config = Configuration {
+        levels: vec![board],
+        start: 0,
+        wait_on_level_start: true,
+    };
+    for key in [0xcc, 0xcf, 0x9b] {
+        let mut live = Run::new(config.clone(), false).unwrap();
+        let mut playback = Run::new(config.clone(), false).unwrap();
+        for _ in 0..10 {
+            live.step(None).unwrap();
+        }
+        playback.start_ready_level();
+        live.step(Some(key)).unwrap();
+        playback.step(Some(key)).unwrap();
+        assert_eq!(live.trace().unwrap(), playback.trace().unwrap());
+        assert_eq!(live.last_inputs()[0].key, key);
+        if key == 0xcf {
+            assert!(live.game.player.digging.is_some());
+        }
+    }
+}
+
+#[test]
+fn airborne_start_retains_the_first_key_until_gameplay_can_observe_it() {
+    let mut board = level(5, 0);
+    let index = 28 + 5;
+    board.0[index / 2] &= !(15 << ((index % 2) * 4));
+    let mut run = Run::new(
+        Configuration {
+            levels: vec![board],
+            start: 0,
+            wait_on_level_start: true,
+        },
+        false,
+    )
+    .unwrap();
+    run.step(Some(0xcc)).unwrap();
+    assert!(run.last_inputs().is_empty());
+    for _ in 0..100 {
+        run.step(None).unwrap();
+        if !run.last_inputs().is_empty() {
+            break;
+        }
+    }
+    assert_eq!(run.last_inputs()[0].key, 0xcc);
     assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
 }
 
@@ -175,6 +229,9 @@ fn navigation_bypasses_terminal_sequences_and_stops_at_list_endpoints() {
     run.step(Some(LevelNavigation::Previous as u8)).unwrap();
     assert_eq!(run.game.session.level, 1);
     assert_eq!(run.game.difficulty, 0);
+    run.step(Some(0xcc)).unwrap();
+    assert_eq!(run.game.player.position.x(), 3);
+    assert_eq!(run.last_inputs()[0].key, 0xcc);
     assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
 }
 

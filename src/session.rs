@@ -62,7 +62,8 @@ pub struct Run {
 }
 
 // Ready waits are host interaction. Trace boundaries describe a board ready for
-// gameplay, without retaining its blinking phase or the key that dismisses it.
+// gameplay without retaining its blinking phase. Starting commands are observed
+// through normal gameplay rather than recorded as ready-screen interaction.
 fn trace_snapshot(game: &Game) -> Snapshot {
     let mut snapshot = game.snapshot();
     if snapshot.session.phase == Phase::Waiting {
@@ -119,23 +120,23 @@ impl Run {
         if let Some(navigation) = delivery.and_then(LevelNavigation::from_key) {
             return self.navigate(navigation, checkpoint);
         }
+        // The first key ends the host wait and enters the ordinary gameplay
+        // latch in this same step, preserving commands and deferred observation.
+        if self.game.session.phase == Phase::Waiting && delivery.is_some() {
+            self.start_ready_level();
+        }
         if self.game.session.phase == Phase::Waiting {
             self.last_inputs.clear();
             self.last_timing = None;
             self.last_model_cycles = None;
-            if delivery.is_some() {
-                self.start_ready_level();
+            let elapsed = self.game.clock.output_cycles() - self.waiting_started;
+            self.game.visual_effect = if (elapsed / BLINK_HALF_PERIOD_CYCLES).is_multiple_of(2) {
+                VisualEffect::None
             } else {
-                let elapsed = self.game.clock.output_cycles() - self.waiting_started;
-                self.game.visual_effect = if (elapsed / BLINK_HALF_PERIOD_CYCLES).is_multiple_of(2)
-                {
-                    VisualEffect::None
-                } else {
-                    let (sprite, half_x, y) = self.game.player_sprite_coordinates();
-                    VisualEffect::HidePlayer { sprite, half_x, y }
-                };
-                self.game.clock.advance_presentation(NTSC_CPU_HZ / 200);
-            }
+                let (sprite, half_x, y) = self.game.player_sprite_coordinates();
+                VisualEffect::HidePlayer { sprite, half_x, y }
+            };
+            self.game.clock.advance_presentation(NTSC_CPU_HZ / 200);
             checkpoint(&mut self.game)?;
             self.game.clock.checkpoint();
             return Ok(());

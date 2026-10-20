@@ -336,3 +336,33 @@ fn delayed_guard_enters_refilling_hole_and_resurrects() {
     assert!(trace.rounds.iter().any(|round|round.changes.iter().any(|change|matches!(change,Change::Actor {after:Some(actor),..} if actor.life==lode_trace::Life::Resurrecting))));
     validate(&trace, &options()).unwrap();
 }
+
+#[test]
+#[ignore = "requires MAME and Apple IIe enhanced ROMs"]
+fn gameplay_validation_resumes_after_direct_level_navigation() {
+    let config = configuration(
+        vec![
+            board(&[(5, 15, Tile::Player), (6, 15, Tile::Gold)]),
+            board(&[(8, 15, Tile::Player), (20, 15, Tile::Gold)]),
+        ],
+        false,
+    );
+    let keys = [
+        Some(0x81),
+        None,
+        Some(0x82),
+        Some(0x83),
+        Some(0x83),
+        Some(0xcc),
+        None,
+        Some(0x9b),
+        Some(0x82),
+        Some(0xcc),
+        None,
+    ];
+    let trace = capture(config, &keys).unwrap();
+    let report = validate(&trace, &options()).unwrap();
+    assert_eq!(report.timing.len(), keys.len() - 5);
+    assert_eq!(trace.final_state.session.level, 1);
+    assert_eq!(trace.final_state.session.lives_used, 1);
+}

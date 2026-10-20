@@ -180,6 +180,7 @@ fn anchors() -> Result<Anchors, String> {
 
 #[derive(Serialize)]
 struct AdapterConfiguration<'a> {
+    level_count: usize,
     work: &'a Path,
     start: usize,
     wait_on_level_start: bool,
@@ -259,6 +260,7 @@ impl Machine {
         // An existing nonempty directory cannot be reused or overwritten.
         prepare_disk(&work, configuration)?;
         let adapter = AdapterConfiguration {
+            level_count: configuration.levels.len(),
             work: &work,
             start: configuration.start,
             wait_on_level_start: configuration.wait_on_level_start,
@@ -512,7 +514,11 @@ pub fn validate_stream(
             .map_err(|error| error.to_string())?;
         }
         let round = &expected.rounds[index];
-        let transition = matches!(previous.phase, Phase::Died | Phase::LevelCleared);
+        let transition = matches!(previous.phase, Phase::Died | Phase::LevelCleared)
+            || round
+                .inputs
+                .first()
+                .is_some_and(|input| matches!(input.key, 0x82 | 0x83));
         if round.inputs.len() > 1
             || round
                 .inputs

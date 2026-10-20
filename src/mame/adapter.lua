@@ -13,6 +13,7 @@ local latch, inputs, signals, log_cursor = 0, {}, {}, #debugger.consolelog
 local polling_target = 0
 local origin = nil
 local excluded_cycles, transition_started = 0, nil
+local game_stack = nil
 local active = false
 local reloading = false
 local observed_latch = false
@@ -177,6 +178,20 @@ end
 -- interval at the next game boundary, before another gameplay instruction runs.
 continue_interval = function(command)
     if command.stop then stop_session(command.save); return end
+    if command.key == 0x82 or command.key == 0x83 then
+        local target = space:read_u8(0x96) + (command.key == 0x82 and -1 or 1)
+        index = index + 1; emitted = false
+        -- Navigation enters the ordinary loader directly, without executing the
+        -- original death/completion routines or their score/life side effects.
+        if target < 0 or target >= config.level_count then sample(); return end
+        transition_started = cycles()
+        space:write_u8(0x96, target); space:write_u8(0xa6, target + 1)
+        latch, inputs, signals = 0, {}, {}
+        observed_latch, skip_main = false, false
+        cpu.state.SP.value = assert(game_stack)
+        cpu.state.PC.value = at("INIT_GAME_DATA.start_game")
+        cpu.debug:go(); return
+    end
     if phase == "Died" or phase == "LevelCleared" then
         transition_started = cycles()
         -- Remaining lives belong to the original application shell. Replenish
@@ -239,6 +254,7 @@ local function stopped()
 
     local name = breakpoints[pc]
     if name == "INIT_GAME_DATA.game_loop" then
+        if not game_stack then game_stack = cpu.state.SP.value end
         if skip_main then skip_main=false; cpu.debug:go(); return end
         if not origin then inputs, signals = {}, {}; drain_signals(); signals = {} end
         if transition_started then

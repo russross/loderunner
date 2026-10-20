@@ -1,9 +1,10 @@
 use lode_trace::{Phase, Tile};
 use loderunner::collision::{Layer, Scene};
+use loderunner::devices::keyboard::LevelNavigation;
 use loderunner::session::{Configuration, Run, replay};
 use loderunner::storage::LevelRecord;
 use loderunner::timing::NTSC_CPU_HZ;
-use loderunner::transition::{BONUS_DURATION_US, IRIS_FRAMES, VisualEffect};
+use loderunner::transition::{BONUS_DURATION_US, IRIS_DURATION_CYCLES, IRIS_FRAMES, VisualEffect};
 
 fn level(col: usize, row: usize) -> LevelRecord {
     let mut bytes = [0; 256];
@@ -91,7 +92,7 @@ fn completion_animates_score_before_switching_boards_without_gameplay_time() {
     assert_eq!(run.game.session.lives_used, 1);
     assert_eq!(
         run.game.clock.output_cycles() - output,
-        BONUS_DURATION_US * NTSC_CPU_HZ / 1_000_000 + 2 * NTSC_CPU_HZ
+        BONUS_DURATION_US * NTSC_CPU_HZ / 1_000_000 + 2 * IRIS_DURATION_CYCLES
     );
     assert_eq!(run.trace().unwrap().final_delta, 0);
 }
@@ -131,4 +132,98 @@ fn circular_iris_preserves_status_and_expands_monotonically() {
         previous = count;
     }
     assert_eq!(source.row_bits(Layer::Foreground, 88), original);
+}
+
+#[test]
+fn navigation_bypasses_terminal_sequences_and_stops_at_list_endpoints() {
+    let config = Configuration {
+        levels: vec![level(5, 15), level(8, 15)],
+        start: 0,
+        wait_on_level_start: true,
+    };
+    let mut run = Run::new(config, false).unwrap();
+    let initial = run.game.snapshot();
+    run.step(Some(LevelNavigation::Previous as u8)).unwrap();
+    assert_eq!(run.game.snapshot(), initial);
+    assert_eq!(run.game.clock.output_cycles(), 0);
+
+    let mut frames = Vec::new();
+    run.step_with_checkpoint(Some(LevelNavigation::Next as u8), &mut |game| {
+        assert!(game.player.alive);
+        assert_eq!(game.score.decimal(), 0);
+        assert_eq!(game.clock.cycles, 0);
+        assert!(game.speaker.edges.is_empty());
+        if let VisualEffect::Iris { frame } = game.visual_effect {
+            frames.push((game.player.position.cell.col, frame));
+        } else {
+            panic!("navigation presented a tune checkpoint");
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(frames.len(), 2 * IRIS_FRAMES as usize);
+    assert_eq!(frames[IRIS_FRAMES as usize - 1], (5, 0));
+    assert_eq!(frames[IRIS_FRAMES as usize], (8, 1));
+    assert_eq!(run.game.clock.output_cycles(), NTSC_CPU_HZ);
+    assert_eq!(run.game.session.phase, Phase::Waiting);
+    assert_eq!(run.game.session.level, 2);
+    let last = run.game.snapshot();
+    let output = run.game.clock.output_cycles();
+    run.step(Some(LevelNavigation::Next as u8)).unwrap();
+    assert_eq!(run.game.snapshot(), last);
+    assert_eq!(run.game.clock.output_cycles(), output);
+    run.step(Some(LevelNavigation::Previous as u8)).unwrap();
+    assert_eq!(run.game.session.level, 1);
+    assert_eq!(run.game.difficulty, 0);
+    assert_eq!(replay(&run.trace().unwrap()).unwrap(), run.trace().unwrap());
+}
+
+#[test]
+fn navigation_interrupts_falling_and_pause_without_advancing_gameplay() {
+    for pause in [false, true] {
+        let mut run = Run::new(
+            Configuration {
+                levels: vec![level(5, if pause { 15 } else { 0 }), level(8, 15)],
+                start: 0,
+                wait_on_level_start: false,
+            },
+            false,
+        )
+        .unwrap();
+        if pause {
+            run.step(Some(0x9b)).unwrap();
+        } else {
+            run.game.board.cells[28 + 5] = Tile::Empty;
+            run.game.board.terrain[28 + 5] = Tile::Empty;
+            run.step(None).unwrap();
+            assert_eq!(run.game.player.motion, lode_trace::Motion::Falling);
+        }
+        let cycles = run.game.clock.cycles;
+        let edges = run.game.speaker.edges.len();
+        run.step(Some(LevelNavigation::Next as u8)).unwrap();
+        assert_eq!(run.game.clock.cycles, cycles);
+        assert_eq!(run.game.speaker.edges.len(), edges);
+        assert_eq!(run.game.session.level, 2);
+        assert_eq!(run.game.session.phase, Phase::Playing);
+    }
+}
+
+#[test]
+fn direct_navigation_preserves_score_and_difficulty_and_resets_lives_used() {
+    let mut run = Run::new(
+        Configuration {
+            levels: vec![level(5, 15), level(8, 15)],
+            start: 0,
+            wait_on_level_start: true,
+        },
+        false,
+    )
+    .unwrap();
+    run.game.score.add(250);
+    run.game.session.lives_used = 8;
+    run.game.difficulty = 3;
+    run.step(Some(LevelNavigation::Next as u8)).unwrap();
+    assert_eq!(run.game.score.decimal(), 250);
+    assert_eq!(run.game.session.lives_used, 1);
+    assert_eq!(run.game.difficulty, 3);
 }

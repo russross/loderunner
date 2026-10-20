@@ -2,7 +2,8 @@
 use crate::collision::Scene;
 use crate::graphics::Sprite;
 
-pub const IRIS_FRAMES: u64 = 60;
+pub const IRIS_FRAMES: u64 = 30;
+pub const IRIS_DURATION_CYCLES: u64 = crate::timing::NTSC_CPU_HZ / 2;
 pub const BLINK_HALF_PERIOD_CYCLES: u64 = crate::timing::NTSC_CPU_HZ / 3;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

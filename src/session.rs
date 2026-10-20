@@ -1,6 +1,6 @@
 use crate::actors::Command;
 use crate::board::Level;
-use crate::devices::keyboard::Control;
+use crate::devices::keyboard::{Control, LevelNavigation};
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
 use crate::sound::{NoteWork, render_note};
@@ -9,7 +9,7 @@ use crate::storage::{LevelRecord, original_level};
 use crate::timing::NTSC_CPU_HZ;
 use crate::transition::{
     BLINK_HALF_PERIOD_CYCLES, BONUS_DURATION_US, BONUS_NOTE_US, BONUS_SCORE_US, DEATH_DURATION_US,
-    DEATH_NOTES, IRIS_FRAMES, VisualEffect,
+    DEATH_NOTES, IRIS_DURATION_CYCLES, IRIS_FRAMES, VisualEffect,
 };
 use lode_trace::{FORMAT_VERSION, Header, Input, Observer, Phase, Round, Snapshot, Trace};
 use serde::{Deserialize, Serialize};
@@ -116,6 +116,9 @@ impl Run {
         delivery: Option<u8>,
         checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
     ) -> Result<(), String> {
+        if let Some(navigation) = delivery.and_then(LevelNavigation::from_key) {
+            return self.navigate(navigation, checkpoint);
+        }
         if self.game.session.phase == Phase::Waiting {
             self.last_inputs.clear();
             self.last_timing = None;
@@ -197,6 +200,66 @@ impl Run {
             self.rounds.push(
                 self.observer
                     .finish_round(self.last_start, trace_snapshot(&self.game), inputs, journal)
+                    .map_err(|error| error.to_string())?,
+            );
+        }
+        Ok(())
+    }
+
+    fn navigate(
+        &mut self,
+        navigation: LevelNavigation,
+        checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.last_start = self.game.clock.cycles;
+        let phase = self.game.session.phase;
+        self.game.clock.begin_interval();
+        let target = match navigation {
+            LevelNavigation::Previous => self.level_index.checked_sub(1),
+            LevelNavigation::Next => {
+                (self.level_index + 1 < self.levels.len()).then_some(self.level_index + 1)
+            }
+        };
+
+        // Selection never marks the player dead or awards completion points.
+        // Endpoint requests leave the current board and ready/pause state intact.
+        if let Some(target) = target {
+            self.game.transitioning = true;
+            self.game.sound.clear();
+            self.iris(false, checkpoint)?;
+            self.level_index = target;
+            self.game.session.level = (target + 1) as u8;
+            self.game.session.lives_used = 1;
+            self.reload()?;
+            self.game.clock.begin_interval();
+            self.iris(true, checkpoint)?;
+            self.game.transitioning = false;
+            self.game.visual_effect = VisualEffect::None;
+            self.waiting_started = self.game.clock.output_cycles();
+        }
+
+        // Only the application request and new board checkpoint are retained.
+        // Navigation and its animation contribute no gameplay events or cycles.
+        let inputs = vec![Input {
+            observation: 0,
+            key: navigation as u8,
+        }];
+        self.last_inputs = inputs.clone();
+        self.last_model_cycles = None;
+        self.last_timing = Some(TimingInterval {
+            phase,
+            end_phase: self.game.session.phase,
+            events: self.game.clock.finish_events(),
+        });
+        if self.tracing {
+            self.rounds.push(
+                self.observer
+                    .finish_round(
+                        self.last_start,
+                        trace_snapshot(&self.game),
+                        inputs,
+                        Vec::new(),
+                    )
                     .map_err(|error| error.to_string())?,
             );
         }
@@ -328,8 +391,8 @@ impl Run {
         for step in 1..=IRIS_FRAMES {
             let frame = if opening { step } else { IRIS_FRAMES - step };
             self.game.visual_effect = VisualEffect::Iris { frame };
-            let duration =
-                step * NTSC_CPU_HZ / IRIS_FRAMES - (step - 1) * NTSC_CPU_HZ / IRIS_FRAMES;
+            let duration = step * IRIS_DURATION_CYCLES / IRIS_FRAMES
+                - (step - 1) * IRIS_DURATION_CYCLES / IRIS_FRAMES;
             self.game.clock.advance_presentation(duration);
             checkpoint(&mut self.game)?;
             self.game.clock.checkpoint();

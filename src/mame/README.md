@@ -19,6 +19,8 @@ The approved `fixed-v2` profile sets player-facing `$05`, guard-facing `$0C91..$
 
 Raw RAM and source-path observations go through `trace::apple2::Apple2Observer`, then through the same canonical round observer as native capture. Expected changes never drive MAME execution. Input recording playback belongs to the root game session; the validator receives only generated gameplay intervals.
 
+Application navigation codes 0x82/0x83 are instantaneous board-selection checkpoints rather than gameplay keys. The adapter stops at configured list endpoints or enters the original loader directly for an adjacent board, preserving score and difficulty. It restores the gameplay stack when leaving pause, excludes loader/iris/ready time, and compares gameplay again on the selected board. No death or completion routine executes for navigation.
+
 Timing and artifacts
 --------------------
 

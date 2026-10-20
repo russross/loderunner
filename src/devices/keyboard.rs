@@ -3,6 +3,25 @@ pub const RETURN: u8 = 0x8d;
 pub const LEFT_ARROW: u8 = 0x88;
 pub const RIGHT_ARROW: u8 = 0x95;
 
+// Application navigation is intercepted before gameplay observes the latch.
+// Its codes retain instantaneous board changes in recordings and trace metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LevelNavigation {
+    Previous = 0x82,
+    Next = 0x83,
+}
+
+impl LevelNavigation {
+    pub fn from_key(code: u8) -> Option<Self> {
+        match code {
+            0x82 => Some(Self::Previous),
+            0x83 => Some(Self::Next),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Keyboard {
     code: u8,

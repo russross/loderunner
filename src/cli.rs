@@ -19,6 +19,7 @@ Game controls
   Ctrl+R             Restart level
   Ctrl+S             Toggle sound
   Ctrl+Left / Right  Slower / faster
+  PgUp / PgDown      Previous / next level
 
 Window
   1 - 5              Snap to 1x - 5x native size (starts at 4x)

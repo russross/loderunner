@@ -8,7 +8,7 @@ The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 developm
 
 Faithful emulation covers core level gameplay: from the start of active play through the committed death or level-completion boundary. This includes movement, digging, guards, gold, holes, exits, collisions, in-level scoring, sound, and gameplay timing. Level selection, ready screens, pause, death/completion presentation and bonuses, reloads, and host controls are application behavior outside that fidelity guarantee. High score tracking and initials entry are absent.
 
-Lives are unlimited. USED counts lives used on the current level, starting at one and resetting on level changes. Completion awards an animated 1,500-point bonus with the original tune; death plays the original capture tune. A circular iris closes for one second and opens for one second around immediate board preparation. The ready player blinks until a fresh keypress. [Transition timing](sources/analysis/TRANSITIONS.md) comes from one-time original-machine measurements and stays outside gameplay tracing and validation.
+Lives are unlimited. USED counts lives used on the current level, starting at one and resetting on level changes. Completion awards an animated 1,500-point bonus with the original tune; death plays the original capture tune. A circular iris closes for half a second and opens for half a second around immediate board preparation. The ready player blinks until a fresh keypress. [Transition timing](sources/analysis/TRANSITIONS.md) comes from one-time original-machine measurements and stays outside gameplay tracing and validation.
 
 
 Rendering and window
@@ -70,6 +70,7 @@ Controls
 *   Arrows or I/J/K/L move. Space stops; releasing a key retains the movement command.
 *   Z/U digs left; X/O digs right.
 *   Escape pauses/resumes.
+*   PgUp/PgDown select the previous/next level directly through the iris, stopping at the list endpoints. Score and difficulty are retained; lives used resets to one.
 *   Ctrl+A sacrifices; Ctrl+R restarts the current level and counts another life used; Ctrl+S mutes; Ctrl+Left/Right changes speed.
 *   Ctrl+Q quits and finishes recording.
 

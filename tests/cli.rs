@@ -139,6 +139,46 @@ fn recordings_exclude_transitions_and_resume_inputs_at_gameplay_boundaries() {
 }
 
 #[test]
+fn recording_replays_direct_level_navigation_and_endpoint_requests() {
+    let files = Files::new("cli-navigation");
+    success(command(
+        &files,
+        &[
+            "--headless",
+            "--rounds",
+            "7",
+            "--record",
+            "play.input",
+            "--input",
+            "0:82",
+            "--input",
+            "1:83",
+            "--input",
+            "3:82",
+        ],
+    ));
+    let text = fs::read_to_string(files.0.join("play.input")).unwrap();
+    let recording = Recording::from_json(&text).unwrap();
+    assert_eq!(recording.key(0), Some(0x82));
+    assert_eq!(recording.key(1), Some(0x83));
+    assert_eq!(recording.key(3), Some(0x82));
+    success(command(
+        &files,
+        &[
+            "--headless",
+            "--replay",
+            "play.input",
+            "--record",
+            "copy.input",
+        ],
+    ));
+    assert_eq!(
+        text,
+        fs::read_to_string(files.0.join("copy.input")).unwrap()
+    );
+}
+
+#[test]
 fn invalid_startup_combinations_fail_before_execution() {
     let files = Files::new("cli-errors");
     for (args, message) in [

@@ -1,6 +1,7 @@
 //! Session execution shares interval boundaries across every startup mode.
 
 use crate::cli::{Arguments, Playback};
+use crate::devices::keyboard::LevelNavigation;
 use crate::presentation::RenderMode;
 use crate::recording::{Recording, observed_key};
 use crate::session::{Configuration, Run};
@@ -155,10 +156,6 @@ impl Session {
                 if quit {
                     break;
                 }
-                let transition = matches!(
-                    self.run.game.session.phase,
-                    Phase::Died | Phase::LevelCleared
-                );
                 let delivery = if let Some(playback) = &self.playback {
                     playback.key(gameplay_round)
                 } else if let Some(expected) = &self.expected {
@@ -171,6 +168,10 @@ impl Session {
                         .map(|index| self.arguments.inputs[index].1)
                         .or(live)
                 };
+                let transition = matches!(
+                    self.run.game.session.phase,
+                    Phase::Died | Phase::LevelCleared
+                ) && delivery.and_then(LevelNavigation::from_key).is_none();
                 self.run.step_with_checkpoint(delivery, &mut present)?;
                 if self.run.last_timing().is_none() {
                     continue;

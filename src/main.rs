@@ -1,7 +1,7 @@
 use crt_native::BackendPreference;
 use lode_trace::Phase;
 use loderunner::cli::{Arguments, CONTROLS, USAGE};
-use loderunner::devices::keyboard::{Control, ESCAPE, RETURN};
+use loderunner::devices::keyboard::{Control, ESCAPE, LevelNavigation, RETURN};
 use loderunner::presentation::Presentation;
 use loderunner::render::Display;
 use loderunner::render::scaled_size;
@@ -60,6 +60,8 @@ fn key_code(key: Keycode, modifiers: Mod) -> Option<u8> {
         Keycode::Space => Some(0xa0),
         Keycode::Escape => Some(ESCAPE),
         Keycode::Return => Some(RETURN),
+        Keycode::PageUp => Some(LevelNavigation::Previous as u8),
+        Keycode::PageDown => Some(LevelNavigation::Next as u8),
         _ => {
             let code = i32::from(key);
             if (32..=126).contains(&code) {
@@ -162,7 +164,10 @@ fn display(mut session: Session) -> Result<(), String> {
                             if !repeat {
                                 commands.borrow_mut().push(command);
                             }
-                        } else if !repeat || game.session.phase != Phase::Waiting {
+                        } else if !repeat
+                            || (game.session.phase != Phase::Waiting
+                                && !matches!(key, Keycode::PageUp | Keycode::PageDown))
+                        {
                             delivery = key_code(key, keymod);
                         }
                     }
@@ -256,8 +261,23 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{WindowCommand, window_command};
+    use super::{WindowCommand, key_code, window_command};
+    use loderunner::devices::keyboard::LevelNavigation;
     use sdl2::keyboard::{Keycode, Mod};
+
+    #[test]
+    fn page_keys_select_application_navigation() {
+        assert_eq!(
+            key_code(Keycode::PageUp, Mod::NOMOD),
+            Some(LevelNavigation::Previous as u8)
+        );
+        assert_eq!(
+            key_code(Keycode::PageDown, Mod::NOMOD),
+            Some(LevelNavigation::Next as u8)
+        );
+        assert_eq!(key_code(Keycode::PageUp, Mod::LCTRLMOD), None);
+        assert_eq!(key_code(Keycode::PageDown, Mod::LCTRLMOD), None);
+    }
 
     #[test]
     fn window_shortcuts_remain_separate_from_modified_game_commands() {

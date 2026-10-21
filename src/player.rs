@@ -213,7 +213,7 @@ impl Game {
         Ok(())
     }
 
-    fn player_can_move(&self, direction: Direction) -> bool {
+    pub(crate) fn player_can_move(&self, direction: Direction) -> bool {
         let position = self.player.position;
         let cell = position.cell;
         let index = Board::index(cell);

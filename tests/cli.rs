@@ -212,9 +212,9 @@ fn recording_replays_direct_level_navigation_and_endpoint_requests() {
     ));
     let text = fs::read_to_string(files.0.join("play.input")).unwrap();
     let recording = Recording::from_json(&text).unwrap();
-    assert_eq!(recording.key(0), Some(0x82));
-    assert_eq!(recording.key(1), Some(0x83));
-    assert_eq!(recording.key(3), Some(0x82));
+    assert_eq!(recording.rounds, 6);
+    assert_eq!(recording.key(0), Some(0x83));
+    assert_eq!(recording.key(2), Some(0x82));
     success(command(
         &files,
         &[

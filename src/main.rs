@@ -1,7 +1,9 @@
 mod frame_timings;
+mod host_input;
 
 use crt_native::BackendPreference;
 use frame_timings::FrameTimings;
+use host_input::HeldArrows;
 use lode_trace::Phase;
 use loderunner::app::{MOVEMENT_STYLE, NEXT_PACK, PREVIOUS_PACK};
 use loderunner::cli::{Arguments, CONTROLS, USAGE};
@@ -143,9 +145,8 @@ fn display(mut session: Session) -> Result<(), String> {
     let mut audio_speed = 1;
     let mut accelerated_sum = 0.0;
     let mut accelerated_count = 0;
-    let mut held_arrows = Vec::new();
+    let mut held_arrows = HeldArrows::default();
     let mut input_context = (session.run.game.session.attempt, false);
-    let mut paused_release = false;
 
     // Initialize the lazy GPU pipeline before starting the live audio timeline.
     presentation.paint_effect(
@@ -166,21 +167,9 @@ fn display(mut session: Session) -> Result<(), String> {
             let context = (game.session.attempt, game.demonstrating);
             if input_context != context {
                 held_arrows.clear();
-                paused_release = false;
                 input_context = context;
             }
-            if !game.host.commodore {
-                paused_release = false;
-            }
-            let mut delivery = if paused_release && game.session.phase == Phase::Playing {
-                paused_release = false;
-                held_arrows
-                    .last()
-                    .and_then(|&held| key_code(held, Mod::NOMOD))
-                    .or(Some(0xa0))
-            } else {
-                None
-            };
+            let mut delivery = None;
             for event in events.borrow_mut().poll_iter() {
                 match event {
                     Event::Window {
@@ -212,16 +201,12 @@ fn display(mut session: Session) -> Result<(), String> {
                         repeat,
                         ..
                     } => {
-                        if matches!(
-                            key,
-                            Keycode::Left | Keycode::Right | Keycode::Up | Keycode::Down
-                        ) && !keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD)
+                        if held_arrows.press(key, keymod, repeat)
+                            && game.host.commodore
+                            && !game.demonstrating
+                            && game.session.phase != Phase::Waiting
                         {
-                            held_arrows.retain(|&held| held != key);
-                            held_arrows.push(key);
-                            if game.host.commodore && game.session.phase == Phase::Paused {
-                                paused_release = true;
-                            }
+                            continue;
                         }
                         if let Some(command) = window_command(key, keymod) {
                             if !repeat {
@@ -237,27 +222,12 @@ fn display(mut session: Session) -> Result<(), String> {
                     Event::KeyUp {
                         keycode: Some(key), ..
                     } => {
-                        let active = held_arrows.last() == Some(&key);
-                        held_arrows.retain(|&held| held != key);
-                        if game.host.commodore
-                            && active
-                            && !game.demonstrating
-                            && game.session.phase != Phase::Waiting
-                        {
-                            if game.session.phase == Phase::Paused {
-                                paused_release = true;
-                            } else {
-                                delivery = held_arrows
-                                    .last()
-                                    .and_then(|&held| key_code(held, Mod::NOMOD))
-                                    .or(Some(0xa0));
-                            }
-                        }
+                        held_arrows.release(key);
                     }
                     _ => (),
                 }
             }
-            Ok((false, delivery))
+            Ok((false, held_arrows.delivery(game, delivery)))
         },
         |game| {
             let started = timings.as_ref().map(|_| Instant::now());

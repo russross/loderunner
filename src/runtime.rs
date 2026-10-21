@@ -222,7 +222,7 @@ impl Session {
                     continue;
                 }
                 if !transition && let Some(recording) = &mut self.recording {
-                    recording.push(self.run.last_inputs())?;
+                    recording.capture(&self.run)?;
                 }
                 if !transition {
                     gameplay_round += 1;

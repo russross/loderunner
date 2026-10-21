@@ -3,7 +3,7 @@ use crate::board::Level;
 use crate::devices::keyboard::{Control, LevelNavigation};
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
-use crate::recording::AttemptSeed;
+use crate::recording::{AttemptSeed, RecordingBoundary};
 use crate::sound::{NoteWork, render_note};
 use crate::state::Game;
 use crate::storage::{LevelRecord, original_level};
@@ -56,6 +56,7 @@ pub struct Run {
     last_start: u64,
     tracing: bool,
     last_inputs: Vec<Input>,
+    recording_boundary: Option<RecordingBoundary>,
     last_events: Journal,
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
@@ -101,6 +102,7 @@ impl Run {
             last_start: 0,
             tracing: true,
             last_inputs: Vec::new(),
+            recording_boundary: None,
             last_events: Vec::new(),
             last_timing: None,
             last_model_cycles: None,
@@ -129,6 +131,7 @@ impl Run {
             self.start_ready_level();
         }
         if self.game.session.phase == Phase::Waiting {
+            self.recording_boundary = None;
             self.last_inputs.clear();
             self.last_timing = None;
             self.last_model_cycles = None;
@@ -145,6 +148,7 @@ impl Run {
             return Ok(());
         }
         self.last_start = self.game.clock.cycles;
+        self.recording_boundary = Some(RecordingBoundary::new(&self.game));
         let phase = self.game.session.phase;
         let transition = matches!(phase, Phase::Died | Phase::LevelCleared);
         self.game.clock.begin_interval();
@@ -216,6 +220,7 @@ impl Run {
         navigation: LevelNavigation,
         checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.recording_boundary = Some(RecordingBoundary::new(&self.game));
         self.last_start = self.game.clock.cycles;
         let phase = self.game.session.phase;
         self.game.clock.begin_interval();
@@ -270,6 +275,10 @@ impl Run {
             );
         }
         Ok(())
+    }
+
+    pub(crate) fn recording_boundary(&self) -> Option<&RecordingBoundary> {
+        self.recording_boundary.as_ref()
     }
 
     // Phase dispatch advances gameplay, a transition or one bounded input poll.

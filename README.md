@@ -34,7 +34,7 @@ Record, replay, and validate
 | Command                          | Behavior                                               |
 |----------------------------------|--------------------------------------------------------|
 | `loderunner`                     | Interactive play with display and sound                 |
-| `loderunner --record FILE`       | Record consumed gameplay inputs                        |
+| `loderunner --record FILE`       | Record effective gameplay inputs                        |
 | `loderunner --replay FILE`       | Play an input recording with display and sound          |
 | `loderunner --trace FILE`        | Save a trace and validate live against MAME              |
 | `loderunner --verify FILE`       | Verify a trace against the game and MAME, headlessly     |
@@ -48,9 +48,9 @@ Add `--headless` for silent, full speed execution or `--display` for display, so
     make validate TRACE=play.trace
     make run ARGS='--verify play.trace --display'
 
-Explicit file recordings are development tools containing initial configuration, consumed keys indexed by interval, and an explicit endpoint. They contain no expected gameplay state or timing. These workflows bypass player databases and saved preferences. Database recordings additionally retain the reload history needed to replay an individual attempt independently. Trace verification compares independently generated state, events, and timing, and validates the same executed intervals against MAME. Quitting early reports incomplete verification. File recording replaces its destination on exit; completed prefixes are also saved after execution or validation errors.
+Explicit file recordings are development tools containing initial configuration, effective Apple II commands indexed by interval, and an explicit endpoint. Capture omits sound/speed controls, repeated directions, and ineffective actions; it supplies Space only when stopping a retained direction is necessary. Pause/resume and effective session navigation remain replayable. Diagnostic traces retain every consumed key and the original modeled timing. They contain no expected gameplay state or timing. These workflows bypass player databases and saved preferences. Database recordings additionally retain the reload history needed to replay an individual attempt independently. Trace verification compares independently generated state, events, and timing, and validates the same executed intervals against MAME. Quitting early reports incomplete verification. File recording replaces its destination on exit; completed prefixes are also saved after execution or validation errors.
 
-`--level N` selects a starting board for live play. `--rounds N` bounds execution and is required for headless live play. Interactive live play waits for a starting key. Playback, headless execution, and development input schedules start ready levels automatically; ready waits are never recorded. The key that starts interactive play also acts as its first gameplay command and is recorded when gameplay observes it. `--input ROUND:HEX` schedules an original high-bit keyboard code at a zero-based gameplay interval for development:
+`--level N` selects a starting board for live play. `--rounds N` bounds execution and is required for headless live play. Interactive live play waits for a starting key. Playback, headless execution, and development input schedules start ready levels automatically; ready waits are never recorded. The key that starts interactive play also acts as its first gameplay command and is recorded if it affects gameplay. `--input ROUND:HEX` schedules an original high-bit keyboard code at a zero-based gameplay interval for development:
 
     make run ARGS='--headless --rounds 120 --input 0:cc --record run.input'
 

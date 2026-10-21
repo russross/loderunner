@@ -384,7 +384,7 @@ impl Application {
             && run.last_timing().is_some()
             && let Some(attempt) = &mut self.attempt
         {
-            attempt.recording.push(run.last_inputs())?;
+            attempt.recording.capture(run)?;
             if previous_phase != Phase::Paused {
                 attempt.elapsed_cycles += run.last_model_cycles().unwrap_or(0);
             }

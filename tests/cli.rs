@@ -407,7 +407,9 @@ fn renderer_selection_and_startup_command_summary_are_available() {
             &["--rounds", "2", "--renderer", mode, "--input", "0:a0"],
         );
         let text = String::from_utf8_lossy(&output.stdout);
-        assert!(text.contains("Increase / decrease native scale"), "{text}");
+        assert!(text.contains("Window & sound"), "{text}");
+        assert!(text.lines().count() <= 24, "{text}");
+        assert!(text.lines().all(|line| line.len() <= 80), "{text}");
         assert!(
             text.contains("Ctrl+=") && text.contains("Commodore"),
             "{text}"

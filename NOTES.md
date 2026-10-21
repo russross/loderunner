@@ -137,6 +137,8 @@ Header insertion, input insertion and per-level pruning commit atomically. If th
 Preferences, controls and demo playback
 --------------------------------------
 
+The startup control summary places Game controls beside Window & sound, with Levels & demos below. Including the title and renderer line, the summary fits an 80-column, 24-row terminal. The CLI startup check enforces these bounds. The same control summary follows the command-line options in `--help` output.
+
 `$XDG_CONFIG_HOME/loderunner/config.json` (default `~/.config/loderunner/config.json`) stores display mode, fitted game-area size in window-coordinate units, Commodore movement, mute, frame period, selected pack, and a map of most recent level per pack. Missing files use defaults. Invalid JSON, values or saved pack selection fail clearly. Changes are saved by atomic replacement only when the snapshot differs, including at normal exit. CLI level/renderer choices override saved choices when explicitly provided. Developer modes do not consult this configuration.
 
 The default display is CRT at 1120 by 768. C toggles CRT/simple. Ctrl+= or Ctrl++ snaps upward, and Ctrl+- downward, to the next integer multiple of 280 by 192; custom sizes snap to the neighboring multiple in that direction. The minimum is 1x. On each presentation checkpoint the application records the fitted game area, excluding letterbox bars; restart creates a window of exactly that size. Nearest-pixel fitting agrees with the native presenter and is idempotent when reopening a custom fitted size. Arbitrary resizing continues to letterbox. Window actions remain outside consumed gameplay inputs. Q quits during play, waiting and transitions. Ctrl+Q is not a quit shortcut.

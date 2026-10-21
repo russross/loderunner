@@ -4,10 +4,11 @@ LEVEL ?= 12
 OUTPUT ?= ../../target/total-recall/$(LEVEL).json
 MODE ?= ticks
 KEY_ROUNDS ?=
+INDEX ?=
 
 .PHONY: capture compare check mostlyclean clean
 capture:
-	./capture.py --source "$(SOURCE)" --level "$(LEVEL)" --output "$(OUTPUT)"
+	./capture.py --source "$(SOURCE)" --level "$(LEVEL)" --output "$(OUTPUT)" $(if $(INDEX),--demo-index "$(INDEX)",)
 compare:
 	$(MAKE) -C ../.. recall-compare CAPTURE="target/total-recall/$(LEVEL).json" RECORDING="target/total-recall/$(LEVEL)-$(MODE).json" RECALL_ARGS="$(foreach timing,$(KEY_ROUNDS),--key-round $(timing))"
 check:

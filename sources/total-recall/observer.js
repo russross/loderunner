@@ -42,9 +42,12 @@ function captureWrap(name, event) {
 async function captureDemo() {
     try {
         createjs.Ticker.removeAllEventListeners("tick");
-        const level = Number(new URLSearchParams(location.search).get("level"));
-        const demo = demoData1.find(value => value.level === level);
-        if (!demo) throw new Error(`No bundled demo for level ${level}`);
+        const parameters = new URLSearchParams(location.search);
+        const level = Number(parameters.get("level"));
+        const demoIndex = parameters.has("demo") ? Number(parameters.get("demo"))
+            : demoData1.findIndex(value => value.level === level);
+        const demo = demoData1[demoIndex];
+        if (!demo || demo.level !== level) throw new Error(`No matching bundled demo for level ${level}`);
         if (demo.ai < 3) throw new Error("AI versions before 3 require animation-clock observation");
         function reset() {
             playMode = PLAY_DEMO;
@@ -96,7 +99,7 @@ async function captureDemo() {
         }
         mainStage.update();
         await fetch("/capture", { method: "POST", body: JSON.stringify({
-            version: 1, level, ai: demo.ai, tile: [tileW, tileH], step: [xMove, yMove],
+            version: 1, level, demoIndex, ai: demo.ai, tile: [tileW, tileH], step: [xMove, yMove],
             observationalEquivalence: true,
             demo, board: classicData[level - 1], initial, ticks, final: captureState(),
         }) });

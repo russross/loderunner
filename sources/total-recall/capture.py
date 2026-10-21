@@ -59,7 +59,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().log_message(format, *args)
 
 
-def capture(source: Path, level: int, output: Path, headless: bool) -> None:
+def capture(source: Path, level: int, output: Path, headless: bool, demo_index: int | None = None) -> None:
     chrome = shutil.which("google-chrome") or shutil.which("chromium")
     if chrome is None:
         raise ValueError("Chrome or Chromium is required")
@@ -67,12 +67,17 @@ def capture(source: Path, level: int, output: Path, headless: bool) -> None:
         raise ValueError(f"{source}: Total Recall checkout not found")
     if output.exists():
         raise ValueError(f"{output}: destination already exists")
+    if demo_index is not None and demo_index < 0:
+        raise ValueError("demo index must be nonnegative")
     handler = functools.partial(Handler, directory=str(source))
     with CaptureServer(("127.0.0.1", 0), handler) as server:
         port = server.server_port
         # A new profile prevents Chrome from reusing the player's ordinary session.
         with tempfile.TemporaryDirectory(prefix="lode-recall-chrome-") as profile:
-            command = [chrome, f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-dev-shm-usage", f"http://127.0.0.1:{port}/capture.html?level={level}"]
+            url = f"http://127.0.0.1:{port}/capture.html?level={level}"
+            if demo_index is not None:
+                url += f"&demo={demo_index}"
+            command = [chrome, f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-dev-shm-usage", url]
             if headless or not os.environ.get("DISPLAY"):
                 command.append("--headless=new")
             with tempfile.TemporaryFile(mode="w+") as log:
@@ -116,9 +121,10 @@ def main() -> int:
     parser.add_argument("--level", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--demo-index", type=int)
     args = parser.parse_args()
     try:
-        capture(args.source.resolve(), args.level, args.output, args.headless)
+        capture(args.source.resolve(), args.level, args.output, args.headless, args.demo_index)
     except (OSError, ValueError, RuntimeError) as error:
         print(f"capture: {error}", file=sys.stderr)
         return 1

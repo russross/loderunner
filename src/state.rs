@@ -4,6 +4,7 @@ use crate::collision::{Layer, Scene};
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
 use crate::graphics::Sprite;
+use crate::recording::OverridePlayback;
 use crate::render::Display;
 use crate::score::Score;
 use crate::sound::Sound;
@@ -26,6 +27,7 @@ pub struct Game {
     pub falling_sound: bool,
     pub falling_pitch: u8,
     pub resurrection_col: u8,
+    pub recording_overrides: OverridePlayback,
     pub difficulty: u8,
     pub skip_level: bool,
     pub display: Display,
@@ -76,6 +78,7 @@ impl Game {
             falling_sound: false,
             falling_pitch: 0x20,
             resurrection_col: 0,
+            recording_overrides: OverridePlayback::default(),
             difficulty: 0,
             skip_level: false,
             display: Display::default(),

@@ -3,7 +3,7 @@
 use crate::cli::{Arguments, Playback};
 use crate::devices::keyboard::LevelNavigation;
 use crate::presentation::RenderMode;
-use crate::recording::{Recording, observed_key};
+use crate::recording::{OverridePlayback, Recording, observed_key};
 use crate::session::{Configuration, Run};
 use crate::state::Game;
 use lode_mame_validation::validate_stream;
@@ -75,15 +75,26 @@ impl Session {
             }
         };
         let mut run = Run::new(configuration.clone(), arguments.display && arguments.paced)?;
+        if let Some(playback) = &playback {
+            if arguments.validate && !playback.overrides.is_empty() {
+                return Err(
+                    "recording overrides cannot be validated against the original machine".into(),
+                );
+            }
+            run.game.recording_overrides = OverridePlayback::new(playback.overrides.clone());
+        }
         if let Some(expected) = &expected
             && run.trace()?.header != expected.header
         {
             return Err("verification initial configuration or state differs".into());
         }
-        let recording = arguments
+        let mut recording = arguments
             .record
             .as_ref()
             .map(|_| Recording::new(configuration));
+        if let (Some(recording), Some(playback)) = (&mut recording, &playback) {
+            recording.overrides = playback.overrides.clone();
+        }
         if !arguments.validate {
             run.disable_tracing()?;
         }

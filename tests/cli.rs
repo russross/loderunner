@@ -38,6 +38,46 @@ fn success(output: Output) {
 }
 
 #[test]
+fn converted_recordings_preserve_overrides_and_reject_machine_validation() {
+    let files = Files::new("cli-overrides");
+    let mut value: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/total-recall-11.json")).unwrap();
+    value.as_object_mut().unwrap().remove("level");
+    value["version"] = serde_json::json!(2);
+    value["configuration"] =
+        serde_json::to_value(loderunner::session::Configuration::original(11).unwrap()).unwrap();
+    fs::write(files.0.join("demo.json"), value.to_string()).unwrap();
+    success(command(
+        &files,
+        &[
+            "--replay",
+            "demo.json",
+            "--headless",
+            "--record",
+            "copy.json",
+        ],
+    ));
+    let copied: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(files.0.join("copy.json")).unwrap()).unwrap();
+    assert_eq!(copied, value);
+
+    // Original-machine verification has no corresponding override inputs.
+    let rejected = command(
+        &files,
+        &[
+            "--replay",
+            "demo.json",
+            "--headless",
+            "--trace",
+            "demo.trace",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("overrides cannot be validated"));
+    assert!(!files.0.join("demo.trace").exists());
+}
+
+#[test]
 fn host_timings_capture_checkpoints_and_refuse_to_overwrite() {
     let files = Files::new("cli-timings");
     let run = || {

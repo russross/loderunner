@@ -1,9 +1,10 @@
 //! Session execution shares interval boundaries across every startup mode.
 
+use crate::app::Application;
 use crate::cli::{Arguments, Playback};
 use crate::devices::keyboard::LevelNavigation;
 use crate::presentation::RenderMode;
-use crate::recording::{OverridePlayback, Recording, observed_key};
+use crate::recording::{Recording, observed_key};
 use crate::session::{Configuration, Run};
 use crate::state::Game;
 use lode_mame_validation::validate_stream;
@@ -12,6 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
+use std::time::Instant;
 
 fn read(path: &Path) -> Result<String, String> {
     fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
@@ -43,6 +45,7 @@ pub struct Session {
     expected: Option<Trace>,
     recording: Option<Recording>,
     end: Option<usize>,
+    application: Option<Application>,
 }
 
 impl Session {
@@ -60,9 +63,29 @@ impl Session {
             paths.push(path);
         }
 
+        // Explicit capture, replay, bounded runs and validation are development
+        // workflows; normal interactive play owns the XDG application state.
+        let managed = matches!(arguments.playback, Playback::Live)
+            && arguments.display
+            && arguments.rounds.is_none()
+            && arguments.inputs.is_empty()
+            && !arguments.validate
+            && arguments.record.is_none();
+        let (application, selected) = if managed {
+            let (application, configuration) = Application::open(&arguments)?;
+            (Some(application), Some(configuration))
+        } else {
+            (None, None)
+        };
         // Playback carries its own level configuration and observed inputs.
         let (configuration, playback, expected) = match &arguments.playback {
-            Playback::Live => (Configuration::original(arguments.level)?, None, None),
+            Playback::Live => (
+                selected
+                    .map(Ok)
+                    .unwrap_or_else(|| Configuration::original(arguments.level))?,
+                None,
+                None,
+            ),
             Playback::Recording(path) => {
                 let playback = Recording::from_json(&read(path)?)?;
                 (playback.configuration.clone(), Some(playback), None)
@@ -75,26 +98,19 @@ impl Session {
             }
         };
         let mut run = Run::new(configuration.clone(), arguments.display && arguments.paced)?;
-        if let Some(playback) = &playback {
-            if arguments.validate && !playback.overrides.is_empty() {
-                return Err(
-                    "recording overrides cannot be validated against the original machine".into(),
-                );
-            }
-            run.game.recording_overrides = OverridePlayback::new(playback.overrides.clone());
+        run.game.host.renderer = arguments.renderer;
+        if let Some(application) = &application {
+            application.configure(&mut run.game);
         }
         if let Some(expected) = &expected
             && run.trace()?.header != expected.header
         {
             return Err("verification initial configuration or state differs".into());
         }
-        let mut recording = arguments
+        let recording = arguments
             .record
             .as_ref()
             .map(|_| Recording::new(configuration));
-        if let (Some(recording), Some(playback)) = (&mut recording, &playback) {
-            recording.overrides = playback.overrides.clone();
-        }
         if !arguments.validate {
             run.disable_tracing()?;
         }
@@ -113,6 +129,7 @@ impl Session {
             expected,
             recording,
             end,
+            application,
         })
     }
 
@@ -121,7 +138,7 @@ impl Session {
     }
 
     pub fn render_mode(&self) -> RenderMode {
-        self.arguments.renderer
+        self.run.game.host.renderer
     }
 
     // A host polls once per interval and submits committed graphics/audio before pacing.
@@ -147,6 +164,9 @@ impl Session {
         self.run.game.clock.start_pacing();
         let result = (|| -> Result<(), String> {
             self.run.present_initial(&mut present)?;
+            if let Some(application) = &mut self.application {
+                application.ready();
+            }
             while self.end.is_none_or(|end| {
                 if self.expected.is_some() {
                     round < end
@@ -167,6 +187,16 @@ impl Session {
                 if quit {
                     break;
                 }
+                let live = if let Some(application) = &mut self.application {
+                    let Some(delivery) =
+                        application.before(&mut self.run, live, Instant::now(), &mut present)?
+                    else {
+                        continue;
+                    };
+                    delivery
+                } else {
+                    live
+                };
                 let delivery = if let Some(playback) = &self.playback {
                     playback.key(gameplay_round)
                 } else if let Some(expected) = &self.expected {
@@ -183,7 +213,11 @@ impl Session {
                     self.run.game.session.phase,
                     Phase::Died | Phase::LevelCleared
                 ) && delivery.and_then(LevelNavigation::from_key).is_none();
+                let previous_phase = self.run.game.session.phase;
                 self.run.step_with_checkpoint(delivery, &mut present)?;
+                if let Some(application) = &mut self.application {
+                    application.after(&mut self.run, previous_phase, &mut present)?;
+                }
                 if self.run.last_timing().is_none() {
                     continue;
                 }
@@ -235,6 +269,10 @@ impl Session {
 
         // Close the stream and preserve completed output before reporting worker errors.
         drop(sender);
+        let application_saved = self
+            .application
+            .as_mut()
+            .map(|application| application.finish(&self.run));
         let trace_saved = self.arguments.trace.as_ref().map(|path| {
             self.run.trace().and_then(|trace| {
                 let text = trace.to_json().map_err(|error| error.to_string())?;
@@ -257,7 +295,7 @@ impl Session {
                     .and_then(|report| report)
             })
             .transpose();
-        let errors = [trace_saved, recording_saved]
+        let errors = [trace_saved, recording_saved, application_saved]
             .into_iter()
             .flatten()
             .filter_map(Result::err)

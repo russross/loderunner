@@ -93,6 +93,14 @@ fn resize_reconstructs_retained_light_and_centers_the_native_aspect() {
         fit_display(280, 500),
         sdl2::rect::Rect::new(0, 154, 280, 192)
     );
+    // Reopening at the saved game-area size must not shrink it by another pixel.
+    for (width, height) in [(1000, 400), (400, 800), (1000, 685)] {
+        let area = fit_display(width, height);
+        assert_eq!(
+            fit_display(area.width(), area.height()),
+            sdl2::rect::Rect::new(0, 0, area.width(), area.height())
+        );
+    }
     let mut scene = Scene::default();
     let mut display = Display::default();
     scene.overlay(9, 51, 55);

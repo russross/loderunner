@@ -1,10 +1,11 @@
 use crate::actors::{DigSide, Guard, GuardId, GuardMode, GuardSchedule, Player};
 use crate::board::{Board, GoldProgress, Holes, Level};
 use crate::collision::{Layer, Scene};
+use crate::config::DisplaySettings;
 use crate::devices::keyboard::Keyboard;
 use crate::devices::speaker::Speaker;
 use crate::graphics::Sprite;
-use crate::recording::OverridePlayback;
+use crate::recording::AttemptSeed;
 use crate::render::Display;
 use crate::score::Score;
 use crate::sound::Sound;
@@ -27,7 +28,6 @@ pub struct Game {
     pub falling_sound: bool,
     pub falling_pitch: u8,
     pub resurrection_col: u8,
-    pub recording_overrides: OverridePlayback,
     pub difficulty: u8,
     pub skip_level: bool,
     pub display: Display,
@@ -38,6 +38,8 @@ pub struct Game {
     pub clock: Clock,
     pub visual_effect: VisualEffect,
     pub transitioning: bool,
+    pub demonstrating: bool,
+    pub host: DisplaySettings,
     guard_facings: [Facing; 5],
 }
 
@@ -64,6 +66,56 @@ impl Progress {
 }
 
 impl Game {
+    pub fn attempt_seed(&self) -> AttemptSeed {
+        let mut guard_facings = self.guard_facings;
+        for guard in &self.guards {
+            guard_facings[guard.id.index()] = guard.facing;
+        }
+        AttemptSeed {
+            score: self.score.decimal(),
+            lives_used: self.session.lives_used,
+            attempt: self.session.attempt,
+            difficulty: self.difficulty,
+            resurrection_column: self.resurrection_col,
+            guard_phase: self.guard_schedule.phase(),
+            guard_facings,
+            player_facing: self.player.facing,
+            falling_sound: self.falling_sound,
+            falling_pitch: self.falling_pitch,
+            sound_enabled: self.sound.enabled,
+            frame_period: self.sound.frame_period,
+        }
+    }
+
+    // Rebuild initial composition using the saved reload history, without copying
+    // trace snapshots or allowing expected gameplay results to drive execution.
+    pub fn restore_attempt(&mut self, seed: &AttemptSeed, board: &Level) -> Result<(), String> {
+        if seed.score >= 100_000_000
+            || seed.lives_used == 0
+            || seed.difficulty > 10
+            || self.guards.len() + usize::from(seed.difficulty) > 11
+            || seed.resurrection_column >= 28
+            || seed.frame_period > 15
+        {
+            return Err("invalid recording initial state".into());
+        }
+        self.guard_schedule = GuardSchedule::with_phase(seed.guard_phase)?;
+        self.score = Score::new(seed.score);
+        self.session.lives_used = seed.lives_used;
+        self.session.attempt = seed.attempt;
+        self.difficulty = seed.difficulty;
+        self.resurrection_col = seed.resurrection_column;
+        self.falling_sound = seed.falling_sound;
+        self.falling_pitch = seed.falling_pitch;
+        self.sound.enabled = seed.sound_enabled;
+        self.sound.frame_period = seed.frame_period;
+        self.guard_facings = seed.guard_facings;
+        self.player.facing = seed.player_facing;
+        self.guards.clear();
+        self.reload_board(board);
+        Ok(())
+    }
+
     pub fn load_level(board: &Level, level: u8, paced: bool) -> Self {
         let mut game = Self {
             board: Board::new(board.tiles),
@@ -78,7 +130,6 @@ impl Game {
             falling_sound: false,
             falling_pitch: 0x20,
             resurrection_col: 0,
-            recording_overrides: OverridePlayback::default(),
             difficulty: 0,
             skip_level: false,
             display: Display::default(),
@@ -89,6 +140,8 @@ impl Game {
             clock: Clock::new(paced),
             visual_effect: VisualEffect::None,
             transitioning: false,
+            demonstrating: false,
+            host: DisplaySettings::default(),
             guard_facings: [Facing::Right; 5],
         };
         game.populate_board();

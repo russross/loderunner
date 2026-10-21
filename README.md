@@ -2,9 +2,12 @@ Lode Runner
 ===========
 
     make
-    make run
+    make install
+    loderunner
 
-The executable is `target/release/loderunner`. Rust 1.88 or newer, SDL2 development libraries, and pkg-config are required. The sibling `../crt` crate supplies the default NTSC/CRT pipeline; keep it checked out beside this project. The game in `src/` uses native game state, composed sprites, and event timing. `src/trace/` defines gameplay observations; `src/mame/` validates them against the original Apple II program. Reference assets and analysis remain in `sources/`.
+The executable is `target/release/loderunner`. Rust 1.88 or newer, Python 3, SDL2 development libraries, and pkg-config are required. The sibling `../crt` crate supplies the default NTSC/CRT pipeline; keep it checked out beside this project. SQLite is bundled. `make` incrementally builds the binary and a catalog containing all 434 levels from Total Recall's five packs. `make install` copies the binary to `~/.local/bin` and the catalog to `$XDG_DATA_HOME/loderunner/levels.sqlite3` (default `~/.local/share/loderunner/levels.sqlite3`). Override `BINDIR` and `DATADIR`, or use `DESTDIR` for staging. Installation never replaces player data or configuration.
+
+The installed binary runs from any working directory. Player history goes in `$XDG_DATA_HOME/loderunner/player.sqlite3`; preferences go in `$XDG_CONFIG_HOME/loderunner/config.json` (default `~/.config/loderunner/config.json`). System catalogs can also be found through `XDG_DATA_DIRS`. The game remembers renderer, fitted game size, movement style, mute, speed, selected pack and the last level played in each pack. Normal play automatically records attempts, preserving personal best and newest wins and pruning short/old failures. No Total Recall demos are imported; the catalog reserves a place for future supplied solutions.
 
 Faithful emulation covers core level gameplay: from the start of active play through the committed death or level-completion boundary. This includes movement, digging, guards, gold, holes, exits, collisions, in-level scoring, sound, and gameplay timing. Level selection, ready screens, pause, death/completion presentation and bonuses, reloads, and host controls are application behavior outside that fidelity guarantee. High score tracking and initials entry are absent.
 
@@ -14,11 +17,11 @@ Lives are unlimited. USED counts lives used on the current level, starting at on
 Rendering and window
 --------------------
 
-The default renderer sends composed scene ink through the `crt` library's Apple II HGR encoder, NTSC decoder, and CRT beam reconstruction. `--renderer simple` selects the existing digital artifact-color output; Tab switches between the two while playing or replaying. Renderer selection does not change gameplay, input recordings, or model timing.
+The default renderer sends composed scene ink through the `crt` library's Apple II HGR encoder, NTSC decoder, and CRT beam reconstruction. `--renderer simple` selects digital artifact-color output; C switches between the two while playing or replaying. Renderer selection does not change gameplay, input recordings, or model timing.
 
 Native presentation automatically uses the sibling `crt/native` GPU backend when supported, with the regular CPU pipeline as fallback. `CRT_BACKEND=cpu make run` forces CPU rendering; `CRT_BACKEND=gpu make run` requires a hardware GPU. `make smoke` exercises the headed presentation path, resize, mode switches, and GPU/CPU image agreement. Small retained updates can be faster on the CPU.
 
-The window starts at 4× native size: 1120×768. Keys 1 through 5 snap to 280×192 through 1400×960. Both output modes retain the native 280:192 aspect ratio and center the picture with black bars inside manually resized windows. CRT reconstruction uses the actual drawable pixel dimensions, including high-DPI displays.
+The initial default window is 4× native size: 1120×768. Ctrl+=/Ctrl++ and Ctrl+- snap up/down to integer multiples of 280×192. Both output modes retain the native aspect ratio and center the picture with black bars inside manually resized windows. The saved size excludes those bars, so reopening fits the game area. CRT reconstruction uses actual drawable pixel dimensions, including high-DPI displays.
 
 A grouped keyboard-command summary prints at startup. Window shortcuts are reserved for presentation and do not enter gameplay recordings.
 
@@ -45,7 +48,7 @@ Add `--headless` for silent, full speed execution or `--display` for display, so
     make validate TRACE=play.trace
     make run ARGS='--verify play.trace --display'
 
-Input recordings contain initial configuration, consumed keys indexed by interval, and an explicit endpoint. They contain no expected gameplay state or timing. Playback runs only the game unless validation is requested. Trace verification compares independently generated state, events, and timing, and validates the same executed intervals against MAME. Quitting early reports incomplete verification. Recording replaces its destination on exit; completed prefixes are also saved after execution or validation errors.
+Explicit file recordings are development tools containing initial configuration, consumed keys indexed by interval, and an explicit endpoint. They contain no expected gameplay state or timing. These workflows bypass player databases and saved preferences. Database recordings additionally retain the reload history needed to replay an individual attempt independently. Trace verification compares independently generated state, events, and timing, and validates the same executed intervals against MAME. Quitting early reports incomplete verification. File recording replaces its destination on exit; completed prefixes are also saved after execution or validation errors.
 
 `--level N` selects a starting board for live play. `--rounds N` bounds execution and is required for headless live play. Interactive live play waits for a starting key. Playback, headless execution, and development input schedules start ready levels automatically; ready waits are never recorded. The key that starts interactive play also acts as its first gameplay command and is recorded when gameplay observes it. `--input ROUND:HEX` schedules an original high-bit keyboard code at a zero-based gameplay interval for development:
 
@@ -67,12 +70,13 @@ Gameplay timing allows 2,000 cycles plus 10% of the port interval. `--tolerance-
 Controls
 --------
 
-*   Arrows or I/J/K/L move. Space stops; releasing a key retains the movement command.
-*   Z/U digs left; X/O digs right.
-*   Escape pauses/resumes.
-*   PgUp/PgDown select the previous/next level directly through the iris, stopping at the list endpoints. Score and difficulty are retained; lives used resets to one.
-*   Ctrl+A sacrifices; Ctrl+R restarts the current level and counts another life used; Ctrl+S mutes; Ctrl+Left/Right changes speed.
-*   Ctrl+Q quits and finishes recording.
+*   Arrows move; Space stops; Z/X dig; P pauses/resumes. Ctrl+K toggles Commodore movement, where releasing arrows stops movement.
+*   Ctrl+R sacrifices a life and restarts; Ctrl+S mutes; Ctrl+Left/Right changes speed.
+*   PgUp/PgDown select adjacent levels. Ctrl+PgUp/PgDown cycle packs and resume each pack's most recent level. Selections use the iris and reset lives used.
+*   C toggles CRT/simple; Ctrl+=/Ctrl+- changes scale; Q quits.
+*   D from ready, or thirty seconds idle, starts a demo when a supplied solution or personal best exists. Left/Right cycle saved recordings; Escape/Space returns to ready.
+
+Demo zero is the supplied solution, or the player's personal best when no solution is supplied. Other wins follow newest-first, and failures use negative numbers with -1 newest. Finishing a demo randomly selects another saved recording for the same level and continues. Demo playback never creates player recordings. Wins and useful failures normally remain for thirty days, with a best useful run per session retained for ninety days; personal best and newest win always remain. Failures shorter than one third of the best winning duration are removed (ten seconds before a win exists).
 
 
 Development

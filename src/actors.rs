@@ -249,6 +249,12 @@ pub struct GuardSchedule {
 }
 
 impl GuardSchedule {
+    pub fn with_phase(phase: u8) -> Result<Self, String> {
+        if phase >= 3 {
+            return Err("invalid guard scheduler phase".into());
+        }
+        Ok(Self { phase, cursor: 0 })
+    }
     pub fn phase(self) -> u8 {
         self.phase
     }

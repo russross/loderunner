@@ -1,6 +1,5 @@
 use lode_trace::{Cell, Motion, Tile};
 use loderunner::actors::{Direction, GuardMode};
-use loderunner::recording::{OverridePlayback, Overrides};
 use loderunner::state::Game;
 use loderunner::storage::{LevelRecord, original_level};
 use std::num::NonZeroU8;
@@ -57,55 +56,6 @@ fn carrying_gold_drop_waits_for_empty_background() {
     assert_eq!(guard.mode, GuardMode::Roaming);
     assert_eq!(game.board.terrain[15 * 28 + 5], Tile::Gold);
     assert_eq!(journal.len(), 1);
-}
-
-#[test]
-fn pickup_overrides_are_consumed_only_on_pickup_and_fall_back_to_counter() {
-    let mut game = fixture((20, 15), &[(5, 15)]);
-    game.resurrection_col = 7;
-    game.recording_overrides = OverridePlayback::new(Overrides {
-        gold_delays: vec![NonZeroU8::new(37), None, NonZeroU8::new(1)],
-        ..Overrides::default()
-    });
-    let mut guard = game.guards[0];
-    // A centered move can observe gold without crossing a cell boundary.
-    game.move_guard(&mut guard, Some(Direction::Right), &mut vec![]);
-    for expected in [37, 8, 1, 8] {
-        guard.position = loderunner::actors::Position::centered(Cell::new(5, 15).unwrap());
-        guard.position.set_x(1);
-        guard.mode = GuardMode::Roaming;
-        game.board.terrain[15 * 28 + 5] = Tile::Gold;
-        game.move_guard(&mut guard, Some(Direction::Right), &mut vec![]);
-        assert!(matches!(guard.mode, GuardMode::Carrying { drop_in } if drop_in.get() == expected));
-        assert_eq!(game.resurrection_col, 7);
-    }
-}
-
-#[test]
-fn burial_override_sets_counter_and_keeps_terrain_search_and_fallback() {
-    let mut game = fixture((20, 15), &[(5, 15)]);
-    game.recording_overrides = OverridePlayback::new(Overrides {
-        resurrection_columns: vec![
-            Some(27.try_into().unwrap()),
-            None,
-            Some(0.try_into().unwrap()),
-        ],
-        ..Overrides::default()
-    });
-    game.board.terrain[28 + 27] = Tile::Brick;
-    let mut cell = Cell::new(5, 15).unwrap();
-    for expected in [
-        Cell::new(0, 2).unwrap(),
-        Cell::new(9, 1).unwrap(),
-        Cell::new(0, 1).unwrap(),
-        Cell::new(9, 1).unwrap(),
-    ] {
-        game.bury_guard(cell, &mut vec![]).unwrap();
-        cell = game.guards[0].position.cell;
-        assert_eq!(cell, expected);
-        assert_eq!(game.resurrection_col, expected.col);
-        game.resurrection_col = 9;
-    }
 }
 
 #[test]

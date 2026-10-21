@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/SimonHung/LodeRunner_TotalRecall",
+  "revision": "cceca5d5a15a21f724836654a46bf2501968e142",
+  "files": {
+    "classic.js": "lodeRunner.v.classic.js",
+    "professional.js": "lodeRunner.v.professional.js",
+    "revenge.js": "lodeRunner.v.revenge.js",
+    "fan-book.js": "lodeRunner.v.fanBookMod.js",
+    "championship.js": "lodeRunner.v.championship.js"
+  },
+  "normalization": "Trailing source whitespace removed; board rows and attribution comments preserved."
+}

@@ -2,10 +2,13 @@
 
 pub mod actors;
 pub mod animation;
+pub mod app;
 mod assets;
 pub mod board;
 pub mod cli;
 pub mod collision;
+pub mod config;
+pub mod database;
 pub mod devices;
 pub mod event_timing;
 pub mod graphics;

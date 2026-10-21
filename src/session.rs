@@ -3,6 +3,7 @@ use crate::board::Level;
 use crate::devices::keyboard::{Control, LevelNavigation};
 use crate::event_timing::{Model, TimingEvent, TimingInterval};
 use crate::player::Journal;
+use crate::recording::AttemptSeed;
 use crate::sound::{NoteWork, render_note};
 use crate::state::Game;
 use crate::storage::{LevelRecord, original_level};
@@ -55,6 +56,7 @@ pub struct Run {
     last_start: u64,
     tracing: bool,
     last_inputs: Vec<Input>,
+    last_events: Journal,
     last_timing: Option<TimingInterval>,
     last_model_cycles: Option<u64>,
     timing_model: Model,
@@ -99,6 +101,7 @@ impl Run {
             last_start: 0,
             tracing: true,
             last_inputs: Vec::new(),
+            last_events: Vec::new(),
             last_timing: None,
             last_model_cycles: None,
             timing_model: Model::calibrated(),
@@ -197,6 +200,7 @@ impl Run {
         self.game.clock.checkpoint();
         self.last_timing = Some(interval);
         self.last_inputs = inputs.clone();
+        self.last_events = journal.clone();
         if self.tracing {
             self.rounds.push(
                 self.observer
@@ -215,6 +219,7 @@ impl Run {
         self.last_start = self.game.clock.cycles;
         let phase = self.game.session.phase;
         self.game.clock.begin_interval();
+        self.last_events.clear();
         let target = match navigation {
             LevelNavigation::Previous => self.level_index.checked_sub(1),
             LevelNavigation::Next => {
@@ -472,6 +477,57 @@ impl Run {
     /// Keys consumed at the latest boundary, including a previously latched key.
     pub fn last_inputs(&self) -> &[Input] {
         &self.last_inputs
+    }
+
+    pub fn last_events(&self) -> &Journal {
+        &self.last_events
+    }
+
+    pub fn level_number(&self) -> u8 {
+        (self.level_index + 1) as u8
+    }
+
+    pub fn recording_configuration(&self) -> Configuration {
+        let mut configuration = self.configuration.clone();
+        configuration.start = self.level_index;
+        configuration
+    }
+
+    // Application selection shares the same iris and virtual audio timeline as
+    // ordinary reloads. Saved attempts restore history before their opening iris.
+    pub fn select(
+        &mut self,
+        configuration: Configuration,
+        seed: Option<&AttemptSeed>,
+        checkpoint: &mut dyn FnMut(&mut Game) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if self.tracing {
+            return Err("application selection is unavailable during trace capture".into());
+        }
+        let levels = configuration.decode_levels()?;
+        self.game.transitioning = true;
+        self.game.sound.clear();
+        self.iris(false, checkpoint)?;
+        self.level_index = configuration.start;
+        self.levels = levels;
+        self.configuration = configuration;
+        self.game.session.level = self.level_number();
+        self.game.session.lives_used = 1;
+        self.reload()?;
+        if let Some(seed) = seed {
+            self.game
+                .restore_attempt(seed, &self.levels[self.level_index])?;
+        }
+        self.game.session.phase = Phase::Waiting;
+        self.game.clock.begin_interval();
+        self.iris(true, checkpoint)?;
+        self.game.transitioning = false;
+        self.game.visual_effect = VisualEffect::None;
+        self.waiting_started = self.game.clock.output_cycles();
+        self.last_timing = None;
+        self.last_inputs.clear();
+        self.last_events.clear();
+        Ok(())
     }
 
     pub fn last_model_cycles(&self) -> Option<u64> {

@@ -8,23 +8,26 @@ use std::time::Duration;
 pub const USAGE: &str = "Lode Runner\n\nUsage: loderunner [OPTIONS]\n  --record FILE       Save consumed inputs\n  --replay FILE       Play an input recording\n  --trace FILE        Save a trace and validate against MAME\n  --verify FILE       Verify a trace against the game and MAME\n  --validate          Validate against MAME without a trace destination\n  --headless          Silent, full speed execution\n  --display           Display and sound (default except for --verify)\n  --unpaced           Disable display pacing\n  --renderer MODE    crt (default) or simple output\n  --rounds N          Bound execution (required for headless live play)\n  --level N           Starting level, 1 through 150\n  --input ROUND:HEX   Schedule a key for development\n  --mame PATH --rompath PATH --pluginspath DIR --work DIR --timeout-seconds N\n  --tolerance-cycles N --tolerance-percent N\n  --original-initialization";
 
 pub const CONTROLS: &str = "Game
-  Arrows / I J K L   Move up, left, down, right
+  Arrows             Move up, left, down, right
   Space              Stop moving
-  Z / U              Dig left
-  X / O              Dig right
-  Escape             Pause / resume
+  Z / X              Dig left / right
+  P                  Pause / resume
 
 Game controls
-  Ctrl+A             Sacrifice a life
-  Ctrl+R             Restart level
+  Ctrl+R             Sacrifice a life and restart level
   Ctrl+S             Toggle sound
   Ctrl+Left / Right  Slower / faster
   PgUp / PgDown      Previous / next level
+  Ctrl+PgUp/PgDown   Previous / next level pack
+  Ctrl+K             Toggle Commodore movement (release arrows to stop)
+  D                  Start demo from the ready screen (also after 30 seconds)
+  Left / Right       Previous / next recording during demo
+  Escape / Space     Leave demo
 
 Window
-  1 - 5              Snap to 1x - 5x native size (starts at 4x)
-  Tab                Switch crt / simple output
-  Ctrl+Q             Quit and finish recording
+  Ctrl+= / Ctrl+-    Increase / decrease native scale
+  C                  Switch crt / simple output
+  Q                  Quit
 
 Other printable keys start play.
 Use --help for recording, replay, validation, and startup options.";
@@ -47,6 +50,8 @@ pub struct Arguments {
     pub renderer: RenderMode,
     pub rounds: Option<usize>,
     pub level: u8,
+    pub level_explicit: bool,
+    pub renderer_explicit: bool,
     pub inputs: Vec<(usize, u8)>,
     pub mame: Options,
 }
@@ -63,6 +68,8 @@ impl Arguments {
             renderer: RenderMode::Crt,
             rounds: None,
             level: 1,
+            level_explicit: false,
+            renderer_explicit: false,
             inputs: Vec::new(),
             mame: Options::default(),
         };
@@ -111,6 +118,7 @@ impl Arguments {
                     };
                 }
                 "--renderer" => {
+                    result.renderer_explicit = true;
                     result.renderer = match value.as_str() {
                         "crt" => RenderMode::Crt,
                         "simple" => RenderMode::Simple,
@@ -123,6 +131,7 @@ impl Arguments {
                     result.rounds = Some(value.parse().map_err(|_| "invalid round count")?)
                 }
                 "--level" => {
+                    result.level_explicit = true;
                     result.level = value.parse().map_err(|_| "invalid level")?;
                     level = true;
                 }

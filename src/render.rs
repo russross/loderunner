@@ -15,17 +15,27 @@ pub fn scaled_size(scale: u32) -> (u32, u32) {
     (WIDTH as u32 * scale, HEIGHT as u32 * scale)
 }
 
+pub fn snap_size(size: [u32; 2], larger: bool) -> (u32, u32) {
+    let scale = (f64::from(size[0]) / WIDTH as f64).min(f64::from(size[1]) / HEIGHT as f64);
+    let target = if larger {
+        (scale + 1e-9).floor() + 1.0
+    } else {
+        (scale - 1e-9).ceil() - 1.0
+    };
+    scaled_size(target.clamp(1.0, 58.0) as u32)
+}
+
 /// Fit the native picture geometry, leaving centered black bars.
 pub fn fit_display(width: u32, height: u32) -> Rect {
     let (w, h) = if u64::from(width) * HEIGHT as u64 > u64::from(height) * WIDTH as u64 {
         (
-            (u64::from(height) * WIDTH as u64 / HEIGHT as u64) as u32,
+            ((u64::from(height) * WIDTH as u64 + HEIGHT as u64 / 2) / HEIGHT as u64) as u32,
             height,
         )
     } else {
         (
             width,
-            (u64::from(width) * HEIGHT as u64 / WIDTH as u64) as u32,
+            ((u64::from(width) * HEIGHT as u64 + WIDTH as u64 / 2) / WIDTH as u64) as u32,
         )
     };
     Rect::new(

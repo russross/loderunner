@@ -1,5 +1,4 @@
 use lode_trace::{Phase, Tile};
-use loderunner::recording::OverridePlayback;
 use loderunner::recording::Recording;
 use loderunner::session::{Configuration, Run};
 use loderunner::storage::LevelRecord;
@@ -96,82 +95,4 @@ fn malformed_recordings_and_unsupported_observations_are_rejected() {
             .is_err()
     );
     assert_eq!(recording.rounds, 0);
-}
-
-#[test]
-fn optional_overrides_round_trip_and_validate_at_the_boundary() {
-    let recording = Recording::new(configuration(&[(5, 15, Tile::Player)]));
-    let mut value = serde_json::to_value(recording).unwrap();
-    assert!(value.get("overrides").is_none());
-    value["overrides"] = serde_json::json!({
-        "gold_delays": [37, null, 1, 255],
-        "resurrection_columns": [27, null, 0]
-    });
-    let parsed = Recording::from_json(&value.to_string()).unwrap();
-    assert_eq!(serde_json::to_value(parsed).unwrap(), value);
-    value["overrides"]["gold_delays"][0] = serde_json::json!(0);
-    assert!(Recording::from_json(&value.to_string()).is_err());
-    value["overrides"]["gold_delays"][0] = serde_json::json!(1);
-    value["overrides"]["resurrection_columns"][0] = serde_json::json!(28);
-    assert!(Recording::from_json(&value.to_string()).is_err());
-}
-
-// These consumed-input fixtures come from Total Recall's demoData1 at revision
-// cceca5d5a15a21f724836654a46bf2501968e142, translated from its tick deliveries.
-fn converted_demo(text: &str) -> Recording {
-    let mut value: serde_json::Value = serde_json::from_str(text).unwrap();
-    let level = value
-        .as_object_mut()
-        .unwrap()
-        .remove("level")
-        .unwrap()
-        .as_u64()
-        .unwrap();
-    value["version"] = serde_json::json!(2);
-    value["configuration"] =
-        serde_json::to_value(Configuration::original(level as u8).unwrap()).unwrap();
-    Recording::from_json(&value.to_string()).unwrap()
-}
-
-fn play_converted(recording: &Recording, delays: bool, columns: bool) -> Run {
-    let mut run = Run::new(recording.configuration.clone(), false).unwrap();
-    let mut overrides = recording.overrides.clone();
-    if !delays {
-        overrides.gold_delays.clear();
-    }
-    if !columns {
-        overrides.resurrection_columns.clear();
-    }
-    run.game.recording_overrides = OverridePlayback::new(overrides);
-    run.start_ready_level();
-    for round in 0..recording.rounds {
-        run.step(recording.key(round)).unwrap();
-        if matches!(run.game.session.phase, Phase::Died | Phase::LevelCleared) {
-            break;
-        }
-    }
-    run
-}
-
-#[test]
-fn converted_level_11_needs_both_delay_and_column_overrides_to_win() {
-    let recording = converted_demo(include_str!("fixtures/total-recall-11.json"));
-    let win = play_converted(&recording, true, true);
-    assert_eq!(win.game.session.phase, Phase::LevelCleared);
-    for (delays, columns) in [(false, false), (true, false), (false, true)] {
-        let run = play_converted(&recording, delays, columns);
-        assert_ne!(run.game.session.phase, Phase::LevelCleared);
-    }
-}
-
-#[test]
-fn converted_level_64_columns_change_survival_but_do_not_resolve_other_differences() {
-    let recording = converted_demo(include_str!("fixtures/total-recall-64.json"));
-    let with_columns = play_converted(&recording, true, true);
-    let without_columns = play_converted(&recording, true, false);
-    assert_eq!(with_columns.game.session.phase, Phase::Died);
-    assert_eq!(without_columns.game.session.phase, Phase::Died);
-    assert!(
-        with_columns.trace().unwrap().rounds.len() > without_columns.trace().unwrap().rounds.len()
-    );
 }

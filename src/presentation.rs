@@ -9,8 +9,10 @@ use crt::{
 };
 use crt_native::{BackendPreference, Display as NativeDisplay};
 use sdl2::video::Window;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RenderMode {
     #[default]
     Crt,

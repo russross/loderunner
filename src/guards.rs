@@ -112,9 +112,7 @@ impl Game {
             return;
         }
         guard.mode = GuardMode::Carrying {
-            drop_in: self
-                .recording_overrides
-                .gold_delay(NonZeroU8::new(self.resurrection_col + 1).expect("gold drop delay")),
+            drop_in: NonZeroU8::new(self.resurrection_col + 1).expect("gold drop delay"),
         };
         self.board.terrain[Board::index(cell)] = Tile::Empty;
         self.paint_cell(Layer::Background, Sprite::EMPTY, cell);
@@ -348,9 +346,6 @@ impl Game {
         }
         self.erase_guard(guard);
         let mut row = 1;
-        if let Some(column) = self.recording_overrides.resurrection_column() {
-            self.resurrection_col = column;
-        }
         // Resurrection scans empty terrain by column then row. Occupancy is tested
         // separately when the delay expires, allowing a blocked spawn to retry.
         loop {

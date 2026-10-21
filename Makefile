@@ -7,6 +7,10 @@ MAME ?= mame
 ROMPATH ?=
 TEST_ARGS ?=
 SYMBOLS = sources/analysis/apple2-symbols.json
+CATALOG = target/levels.sqlite3
+LEVEL_FILES = $(addprefix sources/levels/,classic.js professional.js revenge.js fan-book.js championship.js)
+BINDIR ?= $(HOME)/.local/bin
+DATADIR ?= $(if $(filter /%,$(XDG_DATA_HOME)),$(XDG_DATA_HOME),$(HOME)/.local/share)/loderunner
 MANIFESTS = Cargo.toml src/trace/Cargo.toml src/mame/Cargo.toml ../crt/Cargo.toml ../crt/native/Cargo.toml
 .PHONY: all release run format fmt lint test check validate mame-validation mame-poc test-render-sdl mostlyclean clean
 
@@ -17,8 +21,17 @@ Cargo.lock: $(MANIFESTS)
 	$(CARGO) update --workspace
 	touch $@
 
-all release: $(SYMBOLS) Cargo.lock
+$(CATALOG): sources/build_catalog.py $(LEVEL_FILES) src/catalog.sql src/recordings.sql
+	./sources/build_catalog.py $@
+
+all release: $(SYMBOLS) Cargo.lock $(CATALOG)
 	$(CARGO) build --locked --release -p loderunner
+.PHONY: install catalog
+catalog: $(CATALOG)
+install: release
+	mkdir -p "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(DATADIR)"
+	install -m 755 target/release/loderunner "$(DESTDIR)$(BINDIR)/loderunner"
+	install -m 644 $(CATALOG) "$(DESTDIR)$(DATADIR)/levels.sqlite3"
 run: all
 	target/release/loderunner $(ARGS)
 format:
@@ -27,7 +40,7 @@ fmt:
 	$(CARGO) fmt --all --check
 lint: fmt $(SYMBOLS) Cargo.lock
 	$(CARGO) clippy --locked --workspace --all-targets -- -D warnings
-test: $(SYMBOLS) Cargo.lock
+test: $(SYMBOLS) Cargo.lock $(CATALOG)
 	$(CARGO) test --locked --workspace $(TEST_ARGS)
 check: lint test
 validate: all
@@ -68,9 +81,3 @@ timing-fit:
 	./sources/analysis/fit_port_model.py $(TIMING_MEASUREMENTS) --model src/model.json --report sources/analysis/port-model-report.json
 timing-types:
 	uv run --project sources/mame-poc ty check --extra-search-path sources/analysis sources/analysis/fit_port_model.py
-
-.PHONY: recall-compare recall-check
-recall-compare: $(SYMBOLS) Cargo.lock
-	$(CARGO) run --locked -p loderunner --example total_recall -- "$(CAPTURE)" "$(RECORDING)" $(RECALL_ARGS)
-recall-check: lint
-	$(CARGO) test --locked -p loderunner --example total_recall

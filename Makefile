@@ -68,3 +68,9 @@ timing-fit:
 	./sources/analysis/fit_port_model.py $(TIMING_MEASUREMENTS) --model src/model.json --report sources/analysis/port-model-report.json
 timing-types:
 	uv run --project sources/mame-poc ty check --extra-search-path sources/analysis sources/analysis/fit_port_model.py
+
+.PHONY: recall-compare recall-check
+recall-compare: $(SYMBOLS) Cargo.lock
+	$(CARGO) run --locked -p loderunner --example total_recall -- "$(CAPTURE)" "$(RECORDING)" $(RECALL_ARGS)
+recall-check: lint
+	$(CARGO) test --locked -p loderunner --example total_recall

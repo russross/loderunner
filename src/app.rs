@@ -138,7 +138,7 @@ impl Application {
         )?;
         let mut seed = playback.seed.clone();
         seed.sound_enabled = !self.settings.muted;
-        seed.frame_period = self.settings.frame_period;
+        run.game.clock.set_playback_speed(self.settings.demo_speed);
         run.select(
             playback.recording.configuration.clone(),
             Some(&seed),
@@ -197,6 +197,7 @@ impl Application {
     ) -> Result<(), String> {
         if let Some(attract) = self.attract.take() {
             run.game.demonstrating = false;
+            run.game.clock.set_playback_speed(1);
             run.select(
                 run.recording_configuration(),
                 Some(&attract.live_seed),
@@ -230,14 +231,14 @@ impl Application {
         if self.attract.is_some() && matches!(live, Some(0x93 | 0x88 | 0x95)) {
             match live {
                 Some(0x93) => self.settings.muted = !self.settings.muted,
-                Some(0x88) => self.settings.frame_period = (self.settings.frame_period + 1).min(15),
-                Some(0x95) => {
-                    self.settings.frame_period = self.settings.frame_period.saturating_sub(1)
+                Some(0x88) => {
+                    self.settings.demo_speed = self.settings.demo_speed.saturating_sub(1).max(1)
                 }
+                Some(0x95) => self.settings.demo_speed = (self.settings.demo_speed + 1).min(16),
                 _ => (),
             }
             run.game.sound.enabled = !self.settings.muted;
-            run.game.sound.frame_period = self.settings.frame_period;
+            run.game.clock.set_playback_speed(self.settings.demo_speed);
             self.save_preferences(run)?;
             return Ok(None);
         }

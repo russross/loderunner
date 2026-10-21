@@ -71,7 +71,7 @@ Controls
 --------
 
 *   Arrows move; Space stops; Z/X dig; P pauses/resumes. Ctrl+K toggles Commodore movement, where releasing arrows stops movement.
-*   Ctrl+R sacrifices a life and restarts; Ctrl+S mutes; Ctrl+Left/Right changes speed.
+*   Ctrl+R sacrifices a life and restarts; Ctrl+S mutes; Ctrl+Left/Right changes speed. During demos, these speed keys adjust a separate saved playback multiplier (default 2×, range 1–16×).
 *   PgUp/PgDown select adjacent levels. Ctrl+PgUp/PgDown cycle packs and resume each pack's most recent level. Selections use the iris and reset lives used.
 *   C toggles CRT/simple; Ctrl+=/Ctrl+- changes scale; Q quits.
 *   D from ready, or thirty seconds idle, starts a demo when a supplied solution or personal best exists. Left/Right cycle saved recordings; Escape/Space returns to ready.

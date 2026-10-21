@@ -33,6 +33,7 @@ pub struct Settings {
     pub display: DisplaySettings,
     pub muted: bool,
     pub frame_period: u8,
+    pub demo_speed: u8,
     pub pack: String,
     pub levels: BTreeMap<String, u8>,
 }
@@ -43,6 +44,7 @@ impl Default for Settings {
             display: DisplaySettings::default(),
             muted: false,
             frame_period: 6,
+            demo_speed: 2,
             pack: CLASSIC.into(),
             levels: BTreeMap::new(),
         }
@@ -103,6 +105,7 @@ impl Settings {
         let settings: Self =
             serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
         if settings.frame_period > 15
+            || !(1..=16).contains(&settings.demo_speed)
             || settings
                 .display
                 .size

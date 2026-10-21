@@ -221,6 +221,58 @@ fn pruning_keeps_best_latest_and_recent_useful_runs() {
 }
 
 #[test]
+fn demo_speed_defaults_migrates_and_persists_independently_of_playing_speed() {
+    let files = Files::new();
+    fs::create_dir_all(files.paths().config.parent().unwrap()).unwrap();
+    fs::write(&files.paths().config, r#"{"frame_period":9}"#).unwrap();
+    let catalog = Catalog::open(&files.paths().catalog).unwrap();
+    let mut store = PlayerStore::open(&files.paths().player).unwrap();
+    let now = timestamp().unwrap();
+    store
+        .save(
+            &attempt(catalog.configuration(CLASSIC, 1).unwrap(), now, 90),
+            Outcome::Win,
+            now,
+        )
+        .unwrap();
+    let (mut app, mut run) = files.app();
+    assert_eq!(run.game.sound.frame_period, 9);
+    tick(&mut app, &mut run, Some(0xc4));
+    assert_eq!(run.game.clock.playback_speed(), 2);
+    // Playback retains recorded timing instead of borrowing the live setting.
+    assert_eq!(run.game.sound.frame_period, 6);
+    tick(&mut app, &mut run, Some(0x95));
+    assert_eq!(run.game.clock.playback_speed(), 3);
+    tick(&mut app, &mut run, Some(0xcc));
+    assert_eq!(run.game.clock.playback_speed(), 3);
+    tick(&mut app, &mut run, Some(0x87));
+    assert_eq!(run.game.clock.playback_speed(), 1);
+    assert_eq!(run.game.sound.frame_period, 9);
+    app.finish(&run).unwrap();
+    drop(app);
+    let (mut app, mut run) = files.app();
+    assert_eq!(run.game.sound.frame_period, 9);
+    tick(&mut app, &mut run, Some(0xc4));
+    assert_eq!(run.game.clock.playback_speed(), 3);
+    for _ in 0..20 {
+        tick(&mut app, &mut run, Some(0x88));
+    }
+    assert_eq!(run.game.clock.playback_speed(), 1);
+    for _ in 0..20 {
+        tick(&mut app, &mut run, Some(0x95));
+    }
+    assert_eq!(run.game.clock.playback_speed(), 16);
+    tick(&mut app, &mut run, Some(0x87));
+    tick(&mut app, &mut run, Some(0x88));
+    app.finish(&run).unwrap();
+    let settings = loderunner::config::Settings::load(&files.paths().config).unwrap();
+    assert_eq!(settings.frame_period, 10);
+    assert_eq!(settings.demo_speed, 16);
+    fs::write(&files.paths().config, r#"{"demo_speed":0}"#).unwrap();
+    assert!(loderunner::config::Settings::load(&files.paths().config).is_err());
+}
+
+#[test]
 fn demo_uses_best_loops_and_returns_to_ready_without_recording_itself() {
     let files = Files::new();
     let catalog = Catalog::open(&files.paths().catalog).unwrap();

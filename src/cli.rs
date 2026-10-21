@@ -16,7 +16,7 @@ pub const CONTROLS: &str = "Game
 Game controls
   Ctrl+R             Sacrifice a life and restart level
   Ctrl+S             Toggle sound
-  Ctrl+Left / Right  Slower / faster
+  Ctrl+Left / Right  Slower / faster (separate saved demo speed, default 2x)
   PgUp / PgDown      Previous / next level
   Ctrl+PgUp/PgDown   Previous / next level pack
   Ctrl+K             Toggle Commodore movement (release arrows to stop)

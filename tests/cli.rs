@@ -411,7 +411,7 @@ fn renderer_selection_and_startup_command_summary_are_available() {
         assert!(text.lines().count() <= 24, "{text}");
         assert!(text.lines().all(|line| line.len() <= 80), "{text}");
         assert!(
-            text.contains("Ctrl+=") && text.contains("Commodore"),
+            text.contains("<ctrl> =") && text.contains("hold-to-move"),
             "{text}"
         );
         assert!(text.contains(if mode == "crt" {

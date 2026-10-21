@@ -7,21 +7,21 @@ use std::time::Duration;
 
 pub const USAGE: &str = "Lode Runner\n\nUsage: loderunner [OPTIONS]\n  --record FILE       Save consumed inputs\n  --replay FILE       Play an input recording\n  --trace FILE        Save a trace and validate against MAME\n  --verify FILE       Verify a trace against the game and MAME\n  --validate          Validate against MAME without a trace destination\n  --headless          Silent, full speed execution\n  --display           Display and sound (default except for --verify)\n  --unpaced           Disable display pacing\n  --renderer MODE    crt (default) or simple output\n  --rounds N          Bound execution (required for headless live play)\n  --level N           Starting level, 1 through 150\n  --input ROUND:HEX   Schedule a key for development\n  --mame PATH --rompath PATH --pluginspath DIR --work DIR --timeout-seconds N\n  --tolerance-cycles N --tolerance-percent N\n  --original-initialization";
 
-pub const CONTROLS: &str = "Game controls                                    Window & sound
-  Arrows / Space  Move / stop                      Ctrl+= / Ctrl+-  Resize
-  Z / X           Dig left / right                 C                CRT / simple
-  P               Pause / resume                   Ctrl+S           Toggle mute
-  Ctrl+R          Restart level (uses a life)       Q                Quit
-  Ctrl+Left/Right Slower / faster
-  Ctrl+K          Toggle Commodore release-to-stop
+pub const CONTROLS: &str = "Game controls                         Window & sound
+  arrows / <space>  move / stop         <ctrl> = / -    resize
+  z / x             dig left / right    c               toggle CRT mode
+  p                 pause / resume      <ctrl> s        toggle sound
+  <ctrl> r          restart level       q               quit
+  <ctrl> ← / →      slower / faster
+  <ctrl> k          toggle hold-to-move
 
-Levels & demos
-  PgUp / PgDown       Previous / next level
-  Ctrl+PgUp/PgDown    Previous / next level pack
-  D                  Start demo when ready (automatic after 30 seconds)
-  Left / Right       Previous / next demo
-  Escape / Space     Leave demo and return to ready
-  Ctrl+Left/Right    Demo slower / faster (saved separately; default 2x)
+Levels & demo mode
+  PgUp / PgDown       previous / next level
+  <ctrl> PgUp/PgDown  previous / next level pack
+  d                   start demo (at level start)
+  ← / →               previous / next demo (in demo mode)
+  <ctrl> ← / →        demo slower / faster (separate from play speed)
+  <esc> / <space>     leave demo and return to ready
 
 Ready: press a play key to start.  --help: command-line options.";
 

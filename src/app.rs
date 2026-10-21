@@ -100,8 +100,8 @@ impl Application {
 
     fn save_preferences(&mut self, run: &Run) -> Result<(), String> {
         self.settings.display = run.game.host.clone();
+        self.settings.muted = !run.game.sound.enabled;
         if self.attract.is_none() {
-            self.settings.muted = !run.game.sound.enabled;
             self.settings.frame_period = run.game.sound.frame_period;
         }
         self.settings
@@ -198,11 +198,9 @@ impl Application {
         if let Some(attract) = self.attract.take() {
             run.game.demonstrating = false;
             run.game.clock.set_playback_speed(1);
-            run.select(
-                run.recording_configuration(),
-                Some(&attract.live_seed),
-                present,
-            )?;
+            let mut seed = attract.live_seed;
+            seed.sound_enabled = !self.settings.muted;
+            run.select(run.recording_configuration(), Some(&seed), present)?;
             self.configure(&mut run.game);
             self.idle = Instant::now();
             self.idle_checked = false;
@@ -257,7 +255,9 @@ impl Application {
                 self.select_demo(run, index, present)?;
                 return Ok(None);
             }
-            return Ok(Some(attract.playback.recording.key(attract.round)));
+            // Recorded sound controls cannot override the shared live preference.
+            let key = attract.playback.recording.key(attract.round);
+            return Ok(Some(key.filter(|&key| key != 0x93)));
         }
         if live == Some(0x87) {
             return Ok(None);

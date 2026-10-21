@@ -273,6 +273,54 @@ fn demo_speed_defaults_migrates_and_persists_independently_of_playing_speed() {
 }
 
 #[test]
+fn mute_is_shared_and_persistent_across_live_play_and_demo_playback() {
+    let files = Files::new();
+    let catalog = Catalog::open(&files.paths().catalog).unwrap();
+    let mut store = PlayerStore::open(&files.paths().player).unwrap();
+    let now = timestamp().unwrap();
+    let mut demo = attempt(catalog.configuration(CLASSIC, 1).unwrap(), now, 90);
+    demo.recording = Recording::new(demo.recording.configuration.clone());
+    demo.recording
+        .push(&[Input {
+            observation: 0,
+            key: 0x93,
+        }])
+        .unwrap();
+    demo.recording.push(&[]).unwrap();
+    store.save(&demo, Outcome::Win, now).unwrap();
+
+    // Live mute overrides the recording seed and its recorded sound control.
+    let (mut app, mut run) = files.app();
+    tick(&mut app, &mut run, Some(0x93));
+    tick(&mut app, &mut run, Some(0xc4));
+    tick(&mut app, &mut run, None);
+    assert!(!run.game.sound.enabled);
+    tick(&mut app, &mut run, Some(0x93));
+    assert!(run.game.sound.enabled);
+    for _ in 0..5 {
+        tick(&mut app, &mut run, None);
+        assert!(run.game.sound.enabled);
+    }
+    tick(&mut app, &mut run, Some(0x87));
+    assert!(run.game.sound.enabled);
+
+    // A demo preference survives closing the application while still playing it.
+    tick(&mut app, &mut run, Some(0xc4));
+    tick(&mut app, &mut run, Some(0x93));
+    app.finish(&run).unwrap();
+    drop(app);
+    let (mut app, mut run) = files.app();
+    assert!(!run.game.sound.enabled);
+    tick(&mut app, &mut run, Some(0xc4));
+    tick(&mut app, &mut run, None);
+    assert!(!run.game.sound.enabled);
+    tick(&mut app, &mut run, Some(0x87));
+    assert!(!run.game.sound.enabled);
+    tick(&mut app, &mut run, Some(0xcc));
+    assert!(!run.game.sound.enabled);
+}
+
+#[test]
 fn demo_uses_best_loops_and_returns_to_ready_without_recording_itself() {
     let files = Files::new();
     let catalog = Catalog::open(&files.paths().catalog).unwrap();

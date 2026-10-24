@@ -79,6 +79,20 @@ Controls
 Demo zero is the supplied solution, or the player's personal best when no solution is supplied. Other wins follow newest-first, and failures use negative numbers with -1 newest. Finishing a demo randomly selects another saved recording for the same level and continues. Demo playback never creates player recordings. Wins and useful failures normally remain for thirty days, with a best useful run per session retained for ninety days; personal best and newest win always remain. Failures shorter than one third of the best winning duration are removed (ten seconds before a win exists).
 
 
+Syncing recordings
+-----------------
+
+    ./sync-recordings.py my-other-machine
+
+Use an SSH Host alias or `user@hostname`. The script requires Python 3.10 or newer with the standard-library SQLite module on both machines and local `ssh`; no packages, environment setup, or remote script installation are needed. Each machine must already have a player database, normally created by playing the game.
+
+The script reads each machine's `$XDG_DATA_HOME/loderunner/player.sqlite3`, defaulting to `~/.local/share/loderunner/player.sqlite3`. The remote environment is the one supplied to SSH commands. Override paths when needed:
+
+    ./sync-recordings.py user@host --local-db /path/to/player.sqlite3 --remote-db /remote/path/to/player.sqlite3
+
+Remote-only recordings and their inputs commit locally first, then local-only recordings commit remotely. Each direction uses one transaction and reports its committed count. Rerun after a failure to finish syncing. Matching pack, level, and start timestamps identify existing recordings; differing top-level metadata stops the sync, while matching recordings' input sequences are not compared. The script never overwrites or deletes recordings, syncs preferences or catalogs, or runs pruning. Normal game retention still applies, and later syncs can restore recordings retained by the other machine.
+
+
 Development
 -----------
 
@@ -87,6 +101,8 @@ Development
     make test-presentation
     make test-render-sdl
     make mame-validation ROMPATH="$HOME/mame/roms"
+
+`make sync-test` checks formatting, lint, and Python types before testing recording sync with temporary databases and a local SSH stand-in. These development checks use `uv`; running the sync script itself does not.
 
 Portable tests cover all 150 boards, gameplay transitions, capture/reexecution, input recordings, and CLI behavior. `make mame-validation` runs the external machine suite; ordinary tests leave it ignored. `make mame-poc` runs the separate debugger capability probes. `make timing-fit TIMING_MEASUREMENTS=FILE` refits the model from retained measurements.
 

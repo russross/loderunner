@@ -43,6 +43,14 @@ lint: fmt $(SYMBOLS) Cargo.lock
 test: $(SYMBOLS) Cargo.lock $(CATALOG)
 	$(CARGO) test --locked --workspace $(TEST_ARGS)
 check: lint test
+
+.PHONY: sync-check sync-test
+sync-check:
+	uv run --no-project --with ruff ruff format --check sync-recordings.py tests/sync_recordings.py
+	uv run --no-project --with ruff ruff check sync-recordings.py tests/sync_recordings.py
+	uv run --no-project --with ty ty check sync-recordings.py tests/sync_recordings.py
+sync-test: sync-check
+	python3 tests/sync_recordings.py
 validate: all
 	@test -n "$(TRACE)" || { echo 'Usage: make validate TRACE=play.trace' >&2; exit 1; }
 	target/release/loderunner --verify "$(TRACE)" $(ARGS)

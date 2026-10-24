@@ -11,7 +11,6 @@ pub struct Clock {
     pending_draws: Vec<Draw>,
     epoch: Instant,
     paced: bool,
-    playback_speed: u8,
 }
 
 impl Clock {
@@ -23,7 +22,6 @@ impl Clock {
             pending_draws: Vec::new(),
             epoch: Instant::now(),
             paced,
-            playback_speed: 1,
         }
     }
 
@@ -72,24 +70,8 @@ impl Clock {
         self.epoch = Instant::now() - self.output_duration();
     }
 
-    // Playback scales host time while preserving model cycles and event order.
-    // Rebasing at each change prevents old elapsed cycles from becoming a delay.
-    pub fn set_playback_speed(&mut self, speed: u8) {
-        assert!((1..=16).contains(&speed));
-        if self.playback_speed != speed {
-            self.playback_speed = speed;
-            self.start_pacing();
-        }
-    }
-
-    pub fn playback_speed(&self) -> u8 {
-        self.playback_speed
-    }
-
     fn output_duration(&self) -> Duration {
-        Duration::from_secs_f64(
-            self.output_cycles() as f64 / (NTSC_CPU_HZ * u64::from(self.playback_speed)) as f64,
-        )
+        Duration::from_secs_f64(self.output_cycles() as f64 / NTSC_CPU_HZ as f64)
     }
 
     pub fn remaining(&self) -> Option<Duration> {
@@ -122,23 +104,6 @@ mod tests {
         assert!(remaining > Duration::from_millis(900));
         assert!(remaining <= Duration::from_secs(1));
         assert_eq!(clock.cycles, NTSC_CPU_HZ * 4);
-    }
-
-    #[test]
-    fn playback_speed_scales_deadlines_without_changing_model_time() {
-        let mut clock = Clock::new(true);
-        clock.cycles = NTSC_CPU_HZ * 100;
-        clock.set_playback_speed(2);
-        assert!(clock.remaining().unwrap() < Duration::from_millis(20));
-        clock.cycles += NTSC_CPU_HZ;
-        let remaining = clock.remaining().unwrap();
-        assert!(remaining > Duration::from_millis(450));
-        assert!(remaining <= Duration::from_millis(500));
-        clock.set_playback_speed(1);
-        assert!(clock.remaining().unwrap() < Duration::from_millis(20));
-        clock.cycles += NTSC_CPU_HZ;
-        assert!(clock.remaining().unwrap() > Duration::from_millis(950));
-        assert_eq!(clock.cycles, NTSC_CPU_HZ * 102);
     }
 
     #[test]

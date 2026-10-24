@@ -142,9 +142,6 @@ fn display(mut session: Session) -> Result<(), String> {
     let mut sample_frame = 0;
     let mut previous_input = -1.0;
     let mut previous_output = 0.0;
-    let mut audio_speed = 1;
-    let mut accelerated_sum = 0.0;
-    let mut accelerated_count = 0;
     let mut held_arrows = HeldArrows::default();
     let mut input_context = (session.run.game.session.attempt, false);
 
@@ -264,29 +261,9 @@ fn display(mut session: Session) -> Result<(), String> {
                 previous_output = output;
                 *sample = output * 0.12;
             }
-            // Averaging each accelerated span keeps audio queued for the same
-            // host duration as playback, with pitch following the playback rate.
-            let speed = usize::from(game.clock.playback_speed());
-            if speed != audio_speed {
-                accelerated_sum = 0.0;
-                accelerated_count = 0;
-                audio_speed = speed;
-            }
-            if speed == 1 {
-                queue.queue_audio(&samples)?;
-            } else {
-                let mut accelerated = Vec::with_capacity(samples.len() / speed + 1);
-                for sample in samples {
-                    accelerated_sum += sample;
-                    accelerated_count += 1;
-                    if accelerated_count == speed {
-                        accelerated.push(accelerated_sum / speed as f32);
-                        accelerated_sum = 0.0;
-                        accelerated_count = 0;
-                    }
-                }
-                queue.queue_audio(&accelerated)?;
-            }
+            // Sound and speed preferences are already reflected in modeled
+            // speaker edges and elapsed cycles for live play and demos alike.
+            queue.queue_audio(&samples)?;
             sample_frame = final_frame;
             game.speaker
                 .discard_before(sample_frame * NTSC_CPU_HZ / u64::from(rate));

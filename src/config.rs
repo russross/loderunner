@@ -33,7 +33,10 @@ pub struct Settings {
     pub display: DisplaySettings,
     pub muted: bool,
     pub frame_period: u8,
-    pub demo_speed: u8,
+    pub demo_frame_period: u8,
+    // Legacy multipliers have no exact equivalent in original-machine timing.
+    #[serde(rename = "demo_speed", skip_serializing)]
+    legacy_demo_speed: Option<u8>,
     pub pack: String,
     pub levels: BTreeMap<String, u8>,
 }
@@ -44,7 +47,8 @@ impl Default for Settings {
             display: DisplaySettings::default(),
             muted: false,
             frame_period: 6,
-            demo_speed: 2,
+            demo_frame_period: 6,
+            legacy_demo_speed: None,
             pack: CLASSIC.into(),
             levels: BTreeMap::new(),
         }
@@ -102,10 +106,13 @@ impl Settings {
             }
             Err(error) => return Err(format!("{}: {error}", path.display())),
         };
-        let settings: Self =
+        let mut settings: Self =
             serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
         if settings.frame_period > 15
-            || !(1..=16).contains(&settings.demo_speed)
+            || settings.demo_frame_period > 15
+            || settings
+                .legacy_demo_speed
+                .is_some_and(|speed| !(1..=16).contains(&speed))
             || settings
                 .display
                 .size
@@ -118,6 +125,7 @@ impl Settings {
         {
             return Err(format!("{}: invalid preferences", path.display()));
         }
+        settings.legacy_demo_speed = None;
         Ok(settings)
     }
 

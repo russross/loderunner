@@ -224,7 +224,11 @@ fn pruning_keeps_best_latest_and_recent_useful_runs() {
 fn demo_speed_defaults_migrates_and_persists_independently_of_playing_speed() {
     let files = Files::new();
     fs::create_dir_all(files.paths().config.parent().unwrap()).unwrap();
-    fs::write(&files.paths().config, r#"{"frame_period":9}"#).unwrap();
+    fs::write(
+        &files.paths().config,
+        r#"{"frame_period":9,"demo_speed":2}"#,
+    )
+    .unwrap();
     let catalog = Catalog::open(&files.paths().catalog).unwrap();
     let mut store = PlayerStore::open(&files.paths().player).unwrap();
     let now = timestamp().unwrap();
@@ -238,38 +242,182 @@ fn demo_speed_defaults_migrates_and_persists_independently_of_playing_speed() {
     let (mut app, mut run) = files.app();
     assert_eq!(run.game.sound.frame_period, 9);
     tick(&mut app, &mut run, Some(0xc4));
-    assert_eq!(run.game.clock.playback_speed(), 2);
-    // Playback retains recorded timing instead of borrowing the live setting.
+    // Missing demo periods use the original default, independent of live speed.
     assert_eq!(run.game.sound.frame_period, 6);
     tick(&mut app, &mut run, Some(0x95));
-    assert_eq!(run.game.clock.playback_speed(), 3);
+    assert_eq!(run.game.sound.frame_period, 5);
     tick(&mut app, &mut run, Some(0xcc));
-    assert_eq!(run.game.clock.playback_speed(), 3);
+    assert_eq!(run.game.sound.frame_period, 5);
     tick(&mut app, &mut run, Some(0x87));
-    assert_eq!(run.game.clock.playback_speed(), 1);
     assert_eq!(run.game.sound.frame_period, 9);
     app.finish(&run).unwrap();
     drop(app);
     let (mut app, mut run) = files.app();
     assert_eq!(run.game.sound.frame_period, 9);
     tick(&mut app, &mut run, Some(0xc4));
-    assert_eq!(run.game.clock.playback_speed(), 3);
+    assert_eq!(run.game.sound.frame_period, 5);
+    for _ in 0..5 {
+        tick(&mut app, &mut run, None);
+        assert_eq!(run.game.sound.frame_period, 5);
+    }
     for _ in 0..20 {
         tick(&mut app, &mut run, Some(0x88));
     }
-    assert_eq!(run.game.clock.playback_speed(), 1);
+    assert_eq!(run.game.sound.frame_period, 15);
     for _ in 0..20 {
         tick(&mut app, &mut run, Some(0x95));
     }
-    assert_eq!(run.game.clock.playback_speed(), 16);
+    assert_eq!(run.game.sound.frame_period, 0);
     tick(&mut app, &mut run, Some(0x87));
     tick(&mut app, &mut run, Some(0x88));
     app.finish(&run).unwrap();
     let settings = loderunner::config::Settings::load(&files.paths().config).unwrap();
     assert_eq!(settings.frame_period, 10);
-    assert_eq!(settings.demo_speed, 16);
+    assert_eq!(settings.demo_frame_period, 0);
+    let saved = fs::read_to_string(&files.paths().config).unwrap();
+    assert!(!saved.contains("\"demo_speed\""));
+    fs::write(&files.paths().config, r#"{"demo_frame_period":16}"#).unwrap();
+    assert!(loderunner::config::Settings::load(&files.paths().config).is_err());
     fs::write(&files.paths().config, r#"{"demo_speed":0}"#).unwrap();
     assert!(loderunner::config::Settings::load(&files.paths().config).is_err());
+}
+
+#[test]
+fn demos_recompute_original_timing_and_audio_without_changing_gameplay() {
+    for scenario in ["fall", "gold", "dig"] {
+        let files = Files::new();
+        let mut paths = files.paths();
+        paths.catalog = files.0.join("catalog.sqlite3");
+        fs::copy(files.paths().catalog, &paths.catalog).unwrap();
+
+        // Controlled boards isolate sustained falling, repeated collection and
+        // a full dig while retaining the ordinary catalog-to-demo loading path.
+        let connection = Connection::open(&paths.catalog).unwrap();
+        connection
+            .execute(
+                "UPDATE level_tiles SET tile_kind=? WHERE pack_name=? AND level_number=1",
+                (Tile::Empty as u8, CLASSIC),
+            )
+            .unwrap();
+        for row in 0..16 {
+            for col in 0..28 {
+                let tile = if row == 15 {
+                    Tile::Brick
+                } else if col == 2 && row == if scenario == "fall" { 1 } else { 14 } {
+                    Tile::Player
+                } else if (scenario == "gold" && row == 14 && (3..24).contains(&col))
+                    || (col == 26 && row == 1)
+                {
+                    Tile::Gold
+                } else {
+                    Tile::Empty
+                };
+                connection.execute("UPDATE level_tiles SET tile_kind=? WHERE pack_name=? AND level_number=1 AND tile_row=? AND tile_column=?", (tile as u8, CLASSIC, row, col)).unwrap();
+            }
+        }
+        let catalog = Catalog::open(&paths.catalog).unwrap();
+        let configuration = catalog.configuration(CLASSIC, 1).unwrap();
+        let mut demo = attempt(configuration.clone(), 1, 90);
+        demo.seed.frame_period = 15;
+        demo.seed.sound_enabled = false;
+        demo.recording = Recording::new(configuration.clone());
+        for round in 0..64 {
+            let key = match round {
+                0 if scenario == "gold" => Some(0xcc),
+                0 if scenario == "dig" => Some(0xcf),
+                2 => Some(0x93),
+                3 => Some(0x88),
+                4 => Some(0x95),
+                _ => None,
+            };
+            let input = key.map(|key| Input {
+                observation: 0,
+                key,
+            });
+            demo.recording.push(input.as_slice()).unwrap();
+        }
+        PlayerStore::open(&paths.player)
+            .unwrap()
+            .save(&demo, Outcome::Win, 1)
+            .unwrap();
+        let arguments = Arguments::parse(std::iter::empty()).unwrap().unwrap();
+        let (mut app, selected) = Application::open_at(&arguments, paths).unwrap();
+        let mut playback = Run::new(selected, false).unwrap();
+        playback.disable_tracing().unwrap();
+        app.configure(&mut playback.game);
+        tick(&mut app, &mut playback, Some(0xc4));
+
+        // Independent execution uses current preferences directly. A fixed-speed
+        // baseline checks that preference changes leave every gameplay event intact.
+        let mut seed = demo.seed.clone();
+        seed.frame_period = 6;
+        seed.sound_enabled = true;
+        let mut reference = Run::new(configuration.clone(), false).unwrap();
+        reference.disable_tracing().unwrap();
+        reference
+            .select(configuration.clone(), Some(&seed), &mut |_| Ok(()))
+            .unwrap();
+        reference.start_ready_level();
+        let mut baseline = Run::new(configuration.clone(), false).unwrap();
+        baseline.disable_tracing().unwrap();
+        baseline
+            .select(configuration, Some(&seed), &mut |_| Ok(()))
+            .unwrap();
+        baseline.start_ready_level();
+        let playback_start = playback.game.clock.output_cycles();
+        let reference_start = reference.game.clock.output_cycles();
+
+        for round in 0..40 {
+            // Controls take effect between rounds, including during an active dig
+            // or fall, and must not consume the next recorded gameplay command.
+            let control = match round {
+                5 | 20 => Some(0x93),
+                7 => Some(0x95),
+                25 => Some(0x88),
+                _ => None,
+            };
+            if let Some(control) = control {
+                tick(&mut app, &mut playback, Some(control));
+                match control {
+                    0x93 => reference.game.sound.enabled = !reference.game.sound.enabled,
+                    0x95 => reference.game.sound.frame_period -= 1,
+                    0x88 => reference.game.sound.frame_period += 1,
+                    _ => unreachable!(),
+                }
+            }
+            let key = demo
+                .recording
+                .key(round)
+                .filter(|key| !matches!(key, 0x93 | 0x88 | 0x95));
+            tick(&mut app, &mut playback, None);
+            reference.step(key).unwrap();
+            baseline.step(key).unwrap();
+            assert_eq!(
+                playback.game.snapshot(),
+                reference.game.snapshot(),
+                "{scenario}, round {round}"
+            );
+            assert_eq!(
+                playback.game.snapshot(),
+                baseline.game.snapshot(),
+                "{scenario}, round {round}"
+            );
+            assert_eq!(playback.last_events(), baseline.last_events());
+            assert_eq!(playback.last_model_cycles(), reference.last_model_cycles());
+        }
+        let edges = |run: &Run, start| {
+            run.game
+                .speaker
+                .edges
+                .iter()
+                .filter(|edge| edge.cycle >= start)
+                .map(|edge| (edge.cycle - start, edge.high))
+                .collect::<Vec<_>>()
+        };
+        let actual = edges(&playback, playback_start);
+        assert!(!actual.is_empty(), "{scenario} must exercise sound");
+        assert_eq!(actual, edges(&reference, reference_start), "{scenario}");
+    }
 }
 
 #[test]

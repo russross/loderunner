@@ -41,6 +41,68 @@ Key = tuple[str, int, int]
 Bundle = list[tuple[Header, list[tuple[int, int]]]]
 
 
+@dataclass(frozen=True)
+class Preferences:
+    pack: str
+    levels: dict[str, int]
+    frame_period: int
+    demo_frame_period: int
+
+    @classmethod
+    def read(cls, path: Path) -> "Preferences":
+        values = read_config(path)
+        result = cls(
+            values.get("pack", "Classic Lode Runner"),
+            values.get("levels", {}),
+            values.get("frame_period", 6),
+            values.get("demo_frame_period", 6),
+        )
+        if (
+            not isinstance(result.pack, str)
+            or not isinstance(result.levels, dict)
+            or any(
+                type(v) is not int or not 1 <= v <= 150 for v in result.levels.values()
+            )
+            or any(
+                type(v) is not int or not 0 <= v <= 15
+                for v in (result.frame_period, result.demo_frame_period)
+            )
+        ):
+            raise ValueError(f"{path}: invalid sync preferences")
+        return result
+
+    def save(self, path: Path) -> None:
+        # Preserve destination display, sound and movement preferences.
+        values = read_config(path)
+        values.update(zip(self.__dataclass_fields__, astuple(self)))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f"config.{os.getpid()}.tmp")
+        try:
+            temporary.write_text(json.dumps(values, indent=2) + "\n")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def read_config(path: Path) -> dict:
+    try:
+        values = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    if not isinstance(values, dict):
+        raise TypeError(f"{path}: configuration must be an object")
+    return values
+
+
+def config_path(override: str | None) -> Path:
+    if override is not None:
+        return Path(override).expanduser().resolve()
+    directory = Path(os.environ.get("XDG_CONFIG_HOME", ""))
+    if not directory.is_absolute():
+        directory = Path.home() / ".config"
+    return directory / "loderunner/config.json"
+
+
 def database_path(override: str | None) -> Path:
     if override is not None:
         return Path(override).expanduser().resolve()
@@ -153,25 +215,41 @@ def decode(value: list) -> Bundle:
     ]
 
 
-def remote(connection: sqlite3.Connection) -> None:
+def remote(connection: sqlite3.Connection, config: Path) -> None:
     headers = manifest(connection)
-    send(sys.stdout, [astuple(header) for header in headers.values()])
+    send(
+        sys.stdout,
+        [
+            [astuple(header) for header in headers.values()],
+            astuple(Preferences.read(config)),
+        ],
+    )
     keys = [tuple(key) for key in receive(sys.stdin)]
     bundle = export(connection, headers, keys)
     connection.rollback()
     send(sys.stdout, encode(bundle))
     inserted = merge(connection, decode(receive(sys.stdin)))
     send(sys.stdout, inserted)
+    preferences = receive(sys.stdin)
+    if preferences is not None:
+        Preferences(*preferences).save(config)
+    send(sys.stdout, True)
 
 
 def synchronize(
-    connection: sqlite3.Connection, target: str, remote_db: str | None
+    connection: sqlite3.Connection,
+    target: str,
+    remote_db: str | None,
+    config: Path,
+    remote_config: str | None,
 ) -> None:
     # The helper travels inside the SSH command; stdin remains a JSON channel.
     source = Path(__file__).read_text()
     command = "python3 -c " + shlex.quote(source) + " --_remote"
     if remote_db is not None:
         command += " --remote-db " + shlex.quote(remote_db)
+    if remote_config is not None:
+        command += " --remote-config " + shlex.quote(remote_config)
     with subprocess.Popen(
         ["ssh", "--", target, command],
         stdin=subprocess.PIPE,
@@ -181,10 +259,21 @@ def synchronize(
         assert process.stdin is not None and process.stdout is not None
         try:
             local = manifest(connection)
+            preferences = Preferences.read(config)
+            distant_headers, distant_preferences = receive(process.stdout)
             distant = {
                 header.key: header
-                for header in (Header(*row) for row in receive(process.stdout))
+                for header in (Header(*row) for row in distant_headers)
             }
+            # Compare the original snapshots before imports equalize timestamps.
+            local_latest = max((h.started_at for h in local.values()), default=None)
+            remote_latest = max((h.started_at for h in distant.values()), default=None)
+            newer_local = local_latest is not None and (
+                remote_latest is None or local_latest > remote_latest
+            )
+            newer_remote = remote_latest is not None and (
+                local_latest is None or remote_latest > local_latest
+            )
             for key in local.keys() & distant.keys():
                 if not local[key].matches(distant[key]):
                     raise ValueError(f"conflicting recording metadata: {key!r}")
@@ -196,11 +285,18 @@ def synchronize(
             print(f"Local: committed {pulled} recording(s) from {target}.", flush=True)
             send(process.stdin, encode(outgoing))
             pushed = receive(process.stdout)
+            send(process.stdin, astuple(preferences) if newer_local else None)
+            receive(process.stdout)
             process.stdin.close()
             status = process.wait()
             if status:
                 raise ValueError(f"SSH exited with status {status}")
             print(f"Remote: committed {pushed} recording(s) to {target}.")
+            if newer_remote:
+                Preferences(*distant_preferences).save(config)
+                print(f"Local: updated level and speeds from {target}.")
+            elif newer_local:
+                print(f"Remote: updated level and speeds from local host to {target}.")
         except BaseException:
             # Closing stdin releases a helper waiting for the next request.
             process.stdin.close()
@@ -215,6 +311,8 @@ def main() -> int:
     parser.add_argument("target", nargs="?", help="SSH Host alias or user@hostname")
     parser.add_argument("--local-db", help="local player database path")
     parser.add_argument("--remote-db", help="remote player database path")
+    parser.add_argument("--local-config", help="local configuration path")
+    parser.add_argument("--remote-config", help="remote configuration path")
     parser.add_argument("--_remote", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not args._remote and (not args.target or args.target.startswith("-")):
@@ -225,9 +323,15 @@ def main() -> int:
             database_path(args.remote_db if args._remote else args.local_db)
         )
         if args._remote:
-            remote(connection)
+            remote(connection, config_path(args.remote_config))
         else:
-            synchronize(connection, args.target, args.remote_db)
+            synchronize(
+                connection,
+                args.target,
+                args.remote_db,
+                config_path(args.local_config),
+                args.remote_config,
+            )
         return 0
     except (OSError, sqlite3.Error, ValueError, TypeError, KeyError) as error:
         print(f"sync-recordings: {error}", file=sys.stderr)

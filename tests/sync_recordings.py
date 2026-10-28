@@ -29,6 +29,8 @@ class SyncTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.local = self.directory / "local.sqlite3"
         self.remote = self.directory / "remote 'quoted' $(false).sqlite3"
+        self.local_config = self.directory / "local.json"
+        self.remote_config = self.directory / "remote 'quoted' $(false).json"
         for path in (self.local, self.remote):
             with closing(sqlite3.connect(path)) as connection, connection:
                 connection.executescript((ROOT / "src/recordings.sql").read_text())
@@ -64,6 +66,10 @@ class SyncTests(unittest.TestCase):
                 str(self.local),
                 "--remote-db",
                 str(self.remote),
+                "--local-config",
+                str(self.local_config),
+                "--remote-config",
+                str(self.remote_config),
             ],
             env=self.environment,
             check=False,
@@ -82,6 +88,54 @@ class SyncTests(unittest.TestCase):
                     "SELECT * FROM recording_inputs ORDER BY started_at"
                 ).fetchall(),
             )
+
+    def test_preferences_follow_newest_recording(self) -> None:
+        for newer in (self.local, self.remote):
+            with self.subTest(newer=newer):
+                for path in (self.local, self.remote):
+                    with closing(sqlite3.connect(path)) as connection, connection:
+                        connection.execute("DELETE FROM recording_inputs")
+                        connection.execute("DELETE FROM recordings")
+                local = {
+                    "pack": "Classic Lode Runner",
+                    "levels": {"Classic Lode Runner": 8},
+                    "frame_period": 2,
+                    "demo_frame_period": 4,
+                    "muted": True,
+                }
+                remote = {
+                    "pack": "Professional Lode Runner",
+                    "levels": {"Professional Lode Runner": 19},
+                    "frame_period": 9,
+                    "demo_frame_period": 11,
+                    "muted": False,
+                }
+                self.local_config.write_text(json.dumps(local))
+                self.remote_config.write_text(json.dumps(remote))
+                self.add(newer, 100)
+                result = self.run_sync()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = local if newer == self.local else remote
+                for path, muted in (
+                    (self.local_config, True),
+                    (self.remote_config, False),
+                ):
+                    actual = json.loads(path.read_text())
+                    for key in ("pack", "levels", "frame_period", "demo_frame_period"):
+                        self.assertEqual(actual[key], expected[key])
+                    self.assertEqual(actual["muted"], muted)
+
+    def test_tied_or_empty_recordings_preserve_preferences(self) -> None:
+        self.local_config.write_text('{"frame_period":2}')
+        self.remote_config.write_text('{"frame_period":9}')
+        for timestamp in (None, 100):
+            if timestamp is not None:
+                self.add(self.local, timestamp)
+                self.add(self.remote, timestamp)
+            result = self.run_sync()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.local_config.read_text(), '{"frame_period":2}')
+            self.assertEqual(self.remote_config.read_text(), '{"frame_period":9}')
 
     def test_merge_and_repeat(self) -> None:
         self.add(self.local, 1)
